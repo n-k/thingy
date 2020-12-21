@@ -231,6 +231,8 @@ fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
                             // to do with python and has the insane behavior of not flushing
                             // std stream file deccriptors on print
                             .env("PYTHONUNBUFFERED", "1")
+                            .env("BRANCH", &job.branch)
+                            .env("COMMIT_HASH", &hash)
                             .current_dir(&clone_dir)
                             .spawn();
 

@@ -2,7 +2,7 @@
 Lightweight build server and thing-doer
 
 ## Using thingy
-Installation: `cargo install thingy`
+Installation: `cargo install --force thingy`
 
 Run: `thingy <path/to/workspace/folder/containing thingy.yaml>`
 

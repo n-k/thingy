@@ -1,6 +1,6 @@
 [package]
 name = "thingy"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["n-k <nipunkumar@outlook.com>"]
 description = "Lightweight build server and thing-doer"
 homepage = "https://github.com/n-k/thingy"
