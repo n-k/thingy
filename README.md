@@ -2,6 +2,10 @@
 Lightweight build server and thing-doer
 
 ## Using thingy
+Installation: `cargo install thingy`
+
+Run: `thingy <path/to/workspace/folder/containing thingy.yaml>`
+
 Thingy is a command line application and works inside a 'workspace' folder. A thingy workspace is a plain folder with a `thingy.yaml` file in it. This file's structure is based on [this struct](./src/models.rs#L4). This file lists build jobs and configurations.
 
 An example of a workspace file:
