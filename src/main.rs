@@ -67,7 +67,7 @@ fn start(path: PathBuf) {
     let md = std::fs::metadata(&ws_yaml_path);
     if let Err(err) = &md {
         eprintln!(
-            "Could not get metadata for {:?}. Exiting. Does the file exist? Error: {:?}",
+            "Could not read config from {:?}. Exiting. Does the file exist? Error: {:?}",
             &ws_yaml_path, &err
         );
         return;
@@ -106,7 +106,7 @@ fn start(path: PathBuf) {
             return;
         }
         if uniq.contains(n) {
-            eprintln!("Workspace config contains duplicate jobs with name '{}'. Note that names are trimmed when read.", n);
+            eprintln!("Workspace config contains duplicate jobs with name '{}'. Note that names are trimmed when read. Exiting.", n);
             return;
         }
         uniq.insert(n);

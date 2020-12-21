@@ -1,2 +1,2 @@
 # thingy
-Lightweight thing-doer and build server
+Lightweight build server and thing-doer

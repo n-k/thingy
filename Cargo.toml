@@ -1,7 +1,14 @@
 [package]
 name = "thingy"
 version = "0.1.0"
-authors = ["nk"]
+authors = ["n-k <nipunkumar@outlook.com>"]
+description = "Lightweight build server and thing-doer"
+homepage = "https://github.com/n-k/thingy"
+repository = "https://github.com/n-k/thingy"
+keywords = ["build", "git", "automation"]
+readme = "README.md"
+include = ["src/**/*.rs", "README.md", "LICENSE"]
+license = "MIT"
 edition = "2018"
 
 [dependencies]
