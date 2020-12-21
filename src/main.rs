@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use git2::{build::RepoBuilder, Direction, FetchOptions, Repository};
-use serde::{Deserialize, Serialize};
 use serde_yaml;
 use std::{
     self,
@@ -15,6 +14,10 @@ use std::{
     time::SystemTime,
 };
 use tempfile::TempDir;
+
+mod models;
+
+use models::*;
 
 pub fn main() {
     let mut args = std::env::args();
@@ -156,7 +159,6 @@ fn start(path: PathBuf) {
 
     while let Ok(je) = r.recv() {
         match &je {
-            JobEvent::Tick { job: _ } => {}
             JobEvent::Log {
                 job,
                 line,
@@ -383,46 +385,5 @@ fn get_branch_hash(
     match l {
         Some(rf) => Ok(rf.oid().to_string()),
         _ => Err("Could not find branch".into()),
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum GitAuth {
-    PrivateKey {
-        path: String,
-        passphrase: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum JobEvent {
-    Tick {
-        job: String,
-    },
-    Log {
-        job: String,
-        line: String,
-        is_stderr: bool,
-    },
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Workspace {
-    jobs: Vec<Job>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Job {
-    name: String,
-    repo_url: String,
-    branch: String,
-    build_script: String,
-    poll_interval_seconds: u64,
-    auth: Option<GitAuth>,
-}
-
-impl Job {
-    fn validate(&self) -> Result<(), String> {
-        Ok(())
     }
 }
