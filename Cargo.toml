@@ -20,4 +20,4 @@ chrono = "0.4"
 tempfile = "3.1"
 file-lock = "1.1"
 xactor = "0.7"
-async-std = { version = "1", features=["attributes"]}
+async-std = { version = "1", features=["attributes", "unstable"]}

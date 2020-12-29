@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A workspace containing build jobs
 #[derive(Serialize, Deserialize, Clone)]
@@ -29,7 +29,36 @@ pub struct Job {
 }
 
 impl Job {
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&mut self) -> Result<(), String> {
+        let mut bs = if let Some(bs) = &self.branches {
+            bs.clone()
+        } else {
+            vec![]
+        };
+        if bs.len() == 0 {
+            if let Some(b) = &self.branch {
+                bs.push(b.clone());
+            } else {
+                return Err("No braches to build".into());
+            }
+        } else if let Some(_) = &self.branch {
+            return Err(
+                "Cannot set both branch and branches. Use braches, as branch is deprecated.".into(),
+            );
+        }
+
+        if self.repo_url.trim().is_empty() {
+            return Err("Repository url is empty.".into());
+        }
+
+        if self.build_script.trim().is_empty() {
+            return Err("Build script path is empty.".into());
+        }
+
+        if self.poll_interval_seconds == 0 {
+            return Err("Poll interval must be > 0.".into());
+        }
+
         Ok(())
     }
 }

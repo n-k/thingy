@@ -1,4 +1,4 @@
-use async_std::prelude::*;
+use async_std::{channel::Sender};
 
 use chrono::{DateTime, Utc};
 use git2::{build::RepoBuilder, Direction, FetchOptions, Repository};
@@ -10,7 +10,6 @@ use std::{
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Command, Stdio},
-    sync::mpsc::Sender,
     thread::JoinHandle,
     time::Duration,
     time::SystemTime,
@@ -101,7 +100,7 @@ fn start(path: PathBuf) -> Res {
         .into());
     }
 
-    let ws = ws.unwrap();
+    let mut ws = ws.unwrap();
     let names: Vec<&str> = ws.jobs.iter().map(|j| j.name.trim()).collect();
 
     let mut uniq = HashSet::<&str>::new();
@@ -115,13 +114,15 @@ fn start(path: PathBuf) -> Res {
         uniq.insert(n);
     }
 
-    for j in &ws.jobs {
-        if let Err(err) = j.validate() {
+    for j in &mut ws.jobs {
+        if let Err(err) = &j.validate() {
             return Err(
                 format!("Configuration for {} is invalid: {}. Exiting.", j.name, err).into(),
             );
         }
     }
+
+    let (s, r) = async_std::channel::unbounded::<JobEvent>();
 
     // ensure job dirs
     for j in &ws.jobs {
@@ -130,7 +131,7 @@ fn start(path: PathBuf) -> Res {
 
         if dir.is_file() {
             return Err(format!(
-                "{:?} is a regular file. Expected directory or nothing.",
+                "{:?} is a file. Expected directory or nothing.",
                 &dir
             )
             .into());
@@ -152,32 +153,38 @@ fn start(path: PathBuf) -> Res {
         // let t = std::thread::spawn(move || {
         //     job_work_loop(job, sender, dir);
         // });
+        let sender = s.clone();
+        let _ = async_std::task::spawn(async move {
+            let _ = job_work_loop(job, sender, dir);
+        });
     }
 
-    // while let Ok(je) = r.recv() {
-    //     match &je {
-    //         JobEvent::Log {
-    //             job,
-    //             line,
-    //             is_stderr,
-    //         } => {
-    //             let now = SystemTime::now();
-    //             let now: DateTime<Utc> = now.into();
-    //             let now = now.to_rfc3339();
-
-    //             if *is_stderr {
-    //                 eprintln!("{} [{}] {}", now, job, line);
-    //             } else {
-    //                 println!("{} [{}] {}", now, job, line);
-    //             }
-    //         }
-    //     }
-    // }
+    async_std::task::block_on(async move {
+        while let Ok(je) = r.recv().await {
+            match &je {
+                JobEvent::Log {
+                    job,
+                    line,
+                    is_stderr,
+                } => {
+                    let now = SystemTime::now();
+                    let now: DateTime<Utc> = now.into();
+                    let now = now.to_rfc3339();
+    
+                    if *is_stderr {
+                        eprintln!("{} [{}] {}", now, job, line);
+                    } else {
+                        println!("{} [{}] {}", now, job, line);
+                    }
+                }
+            }
+        }
+    });
 
     Ok(())
 }
 
-fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
+async fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
     let poll_interval = Duration::from_secs(job.poll_interval_seconds);
     let branch = job.branch.clone();
     let branch = branch.unwrap();
@@ -303,7 +310,7 @@ fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
                     line: format!("Could not get commit hash. Error: {}", &err),
                     is_stderr: true,
                 };
-                if let Err(err) = sender.send(je) {
+                if let Err(err) = sender.send(je).await {
                     eprintln!(
                         "[{}] Could not send event. Exiting worker thread. {}",
                         &job.name, &err
