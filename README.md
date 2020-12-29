@@ -28,11 +28,13 @@ In this example, it is assumed that the repository contains an executable file `
 - `BRANCH`: name of branch being built
 - `COMMIT_HASH`: current commit hash being built
 
+## Features
+- Single branch Git poll/build
+
 ## Roadmap
-- [x] Single branch Git poll/build
-- [ ] Multi-branch Git poll/build
-- [ ] Web hooks
-- [ ] Secrets (other than auth)
+- Multi-branch Git poll/build
+- Web hooks
+- Secrets (other than auth)
 
 ## FAQ
  1. Why?

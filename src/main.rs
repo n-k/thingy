@@ -1,3 +1,5 @@
+use async_std::prelude::*;
+
 use chrono::{DateTime, Utc};
 use git2::{build::RepoBuilder, Direction, FetchOptions, Repository};
 use serde_yaml;
@@ -19,17 +21,18 @@ mod models;
 
 use models::*;
 
-pub fn main() {
+pub type Res = Result<(), Box<dyn std::error::Error>>;
+
+#[async_std::main]
+async fn main() -> Res {
     let mut args = std::env::args();
     if args.len() < 2 {
-        eprintln!("Usage: thingy <path to workspace dir containing thingy.yaml>");
-        return;
+        return Err("Usage: thingy <path to workspace dir containing thingy.yaml>".into());
     }
     args.next();
     let path = args.next();
     if path.is_none() {
-        eprintln!("Usage: thingy <path to workspace dir containing thingy.yaml>");
-        return;
+        return Err("Usage: thingy <path to workspace dir containing thingy.yaml>".into());
     }
     let path = path.unwrap();
     println!("Starting thingy in '{}'", path);
@@ -38,65 +41,64 @@ pub fn main() {
         Ok(p) => {
             let path = p.join(path).canonicalize();
             if let Err(err) = &path {
-                eprintln!("Could not get canonical dir. Exiting. Error: {:?}", err);
-                return;
+                return Err(
+                    format!("Could not get canonical dir. Exiting. Error: {:?}", err).into(),
+                );
             }
             let path = path.unwrap();
             println!("Changing working directory to '{:?}' ...", path);
             match std::env::set_current_dir(&path) {
                 Ok(_) => {
                     println!("Done.");
-                    start(path);
-                    return;
+                    return start(path);
                 }
                 Err(err) => {
-                    eprintln!("Could not change current dir. Exiting. Error: {:?}", err);
-                    return;
+                    return Err(
+                        format!("Could not change current dir. Exiting. Error: {:?}", err).into(),
+                    );
                 }
             }
         }
         _ => {
-            eprintln!("Could not get current dir. Exiting.");
-            return;
+            return Err("Could not get current dir. Exiting.".into());
         }
     }
 }
 
-fn start(path: PathBuf) {
+fn start(path: PathBuf) -> Res {
     println!("Initing thingy in workspace {:?}", &path);
 
     let ws_yaml_path = path.clone().join("thingy.yaml");
 
     let md = std::fs::metadata(&ws_yaml_path);
     if let Err(err) = &md {
-        eprintln!(
+        return Err(format!(
             "Could not read config from {:?}. Exiting. Does the file exist? Error: {:?}",
             &ws_yaml_path, &err
-        );
-        return;
+        )
+        .into());
     }
     let md = md.unwrap();
     if !md.is_file() {
-        eprintln!("{:?} is not a regular file. Exiting.", &ws_yaml_path);
-        return;
+        return Err(format!("{:?} is not a regular file. Exiting.", &ws_yaml_path).into());
     }
     let contents = std::fs::read_to_string(&ws_yaml_path);
     if let Err(err) = &contents {
-        eprintln!(
+        return Err(format!(
             "Could not read {:?}. Exiting. Error: {:?}",
             &ws_yaml_path, &err
-        );
-        return;
+        )
+        .into());
     }
     let contents = contents.unwrap();
     let ws = serde_yaml::from_str::<Workspace>(&contents);
 
     if let Err(err) = &ws {
-        eprintln!(
+        return Err(format!(
             "Could not read {:?}. Exiting. Does the file contain valid YAML? Error: {:?}",
             &ws_yaml_path, &err
-        );
-        return;
+        )
+        .into());
     }
 
     let ws = ws.unwrap();
@@ -105,25 +107,21 @@ fn start(path: PathBuf) {
     let mut uniq = HashSet::<&str>::new();
     for n in names {
         if n.is_empty() {
-            eprintln!("Found job with empty name. Exiting.");
-            return;
+            return Err("Found job with empty name. Exiting.".into());
         }
         if uniq.contains(n) {
-            eprintln!("Workspace config contains duplicate jobs with name '{}'. Note that names are trimmed when read. Exiting.", n);
-            return;
+            return Err(format!("Workspace config contains duplicate jobs with name '{}'. Note that names are trimmed when read. Exiting.", n).into());
         }
         uniq.insert(n);
     }
 
     for j in &ws.jobs {
         if let Err(err) = j.validate() {
-            eprintln!("Configuration for {} is invalid: {}. Exiting.", j.name, err);
-            return;
+            return Err(
+                format!("Configuration for {} is invalid: {}. Exiting.", j.name, err).into(),
+            );
         }
     }
-
-    let mut handles: Vec<JoinHandle<()>> = vec![];
-    let (s, r) = std::sync::mpsc::channel::<JobEvent>();
 
     // ensure job dirs
     for j in &ws.jobs {
@@ -131,62 +129,65 @@ fn start(path: PathBuf) {
         let dir = path.join(name);
 
         if dir.is_file() {
-            eprintln!(
+            return Err(format!(
                 "{:?} is a regular file. Expected directory or nothing.",
                 &dir
-            );
-            return;
+            )
+            .into());
         }
 
         if !dir.exists() {
             if let Err(err) = std::fs::create_dir_all(&dir) {
-                eprintln!(
+                return Err(format!(
                     "Could not create job dir {:?}. Exiting. Error: {:?}",
                     &dir, &err
-                );
-                return;
+                )
+                .into());
             }
         }
 
         // start a thread to handle this job
         let job = j.clone();
-        let sender = s.clone();
-        let t = std::thread::spawn(move || {
-            job_work_loop(job, sender, dir);
-        });
-        handles.push(t);
+        // let sender = s.clone();
+        // let t = std::thread::spawn(move || {
+        //     job_work_loop(job, sender, dir);
+        // });
     }
 
-    while let Ok(je) = r.recv() {
-        match &je {
-            JobEvent::Log {
-                job,
-                line,
-                is_stderr,
-            } => {
-                let now = SystemTime::now();
-                let now: DateTime<Utc> = now.into();
-                let now = now.to_rfc3339();
+    // while let Ok(je) = r.recv() {
+    //     match &je {
+    //         JobEvent::Log {
+    //             job,
+    //             line,
+    //             is_stderr,
+    //         } => {
+    //             let now = SystemTime::now();
+    //             let now: DateTime<Utc> = now.into();
+    //             let now = now.to_rfc3339();
 
-                if *is_stderr {
-                    eprintln!("{} [{}] {}", now, job, line);
-                } else {
-                    println!("{} [{}] {}", now, job, line);
-                }
-            }
-        }
-    }
+    //             if *is_stderr {
+    //                 eprintln!("{} [{}] {}", now, job, line);
+    //             } else {
+    //                 println!("{} [{}] {}", now, job, line);
+    //             }
+    //         }
+    //     }
+    // }
+
+    Ok(())
 }
 
 fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
     let poll_interval = Duration::from_secs(job.poll_interval_seconds);
+    let branch = job.branch.clone();
+    let branch = branch.unwrap();
     loop {
         let _ = sender.send(JobEvent::Log {
             job: job.name.clone(),
             line: format!("Scanning repo..."),
             is_stderr: true,
         });
-        let hash = get_branch_hash(&job.repo_url, &job.branch, job.auth.as_ref());
+        let hash = get_branch_hash(&job.repo_url, &branch, job.auth.as_ref());
         match hash {
             Ok(hash) => {
                 let hash_file = dir.clone().join("last_commit_hash.txt");
@@ -200,7 +201,7 @@ fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
                     }
                     if let Err(err) = clone_commit(
                         &job.repo_url,
-                        &job.branch,
+                        &branch,
                         &hash,
                         &clone_dir,
                         job.auth.as_ref(),
@@ -231,7 +232,7 @@ fn job_work_loop(job: Job, sender: Sender<JobEvent>, dir: PathBuf) {
                             // to do with python and has the insane behavior of not flushing
                             // std stream file deccriptors on print
                             .env("PYTHONUNBUFFERED", "1")
-                            .env("BRANCH", &job.branch)
+                            .env("BRANCH", &branch)
                             .env("COMMIT_HASH", &hash)
                             .current_dir(&clone_dir)
                             .spawn();

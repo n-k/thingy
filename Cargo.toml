@@ -1,6 +1,6 @@
 [package]
 name = "thingy"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["n-k <nipunkumar@outlook.com>"]
 description = "Lightweight build server and thing-doer"
 homepage = "https://github.com/n-k/thingy"
@@ -19,3 +19,5 @@ failure = "0.1"
 chrono = "0.4"
 tempfile = "3.1"
 file-lock = "1.1"
+xactor = "0.7"
+async-std = { version = "1", features=["attributes"]}
