@@ -6,8 +6,12 @@ pub struct Workspace {
     pub jobs: Vec<Job>,
 }
 
+impl Workspace {
+    
+}
+
 /// A build job
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Job {
     /// name of the job, must be unique within a workspace
     pub name: String,
@@ -23,7 +27,7 @@ pub struct Job {
     /// Path to script in repository which will be called to build
     pub build_script: String,
     /// Interval in seconds to wait before polling for changes
-    pub poll_interval_seconds: u64,
+    pub poll_interval_seconds: Option<u64>,
     /// Authentication for Git fetch, if required
     pub auth: Option<GitAuth>,
 }
@@ -38,8 +42,6 @@ impl Job {
         if bs.len() == 0 {
             if let Some(b) = &self.branch {
                 bs.push(b.clone());
-            } else {
-                return Err("No braches to build".into());
             }
         } else if let Some(_) = &self.branch {
             return Err(
@@ -55,7 +57,7 @@ impl Job {
             return Err("Build script path is empty.".into());
         }
 
-        if self.poll_interval_seconds == 0 {
+        if self.poll_interval_seconds.eq(&Some(0)) {
             return Err("Poll interval must be > 0.".into());
         }
 
@@ -63,19 +65,10 @@ impl Job {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum GitAuth {
     PrivateKey {
         path: String,
         passphrase: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum JobEvent {
-    Log {
-        job: String,
-        line: String,
-        is_stderr: bool,
     },
 }
