@@ -11,6 +11,7 @@ mod git_utils;
 mod job_actor;
 mod models;
 mod root_actor;
+mod build_actor;
 
 use models::*;
 

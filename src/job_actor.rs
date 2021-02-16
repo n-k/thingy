@@ -76,10 +76,9 @@ impl Handler<JobMessage> for JobActor {
                                 create_dir_all(&bpath)?;
                                 // todo: keep track of last seen state in file in branch dir
                                 let h = BranchActor::new(
-                                    self.job.repo_url.clone(),
+                                    self.job.clone(),
                                     k.clone(),
                                     bpath,
-                                    self.job.auth.clone(),
                                     "".into(),
                                 )
                                 .start();
