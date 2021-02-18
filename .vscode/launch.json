@@ -20,6 +20,9 @@
                 }
             },
             "args": ["./tmp"],
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
             "cwd": "${workspaceFolder}"
         },
         {

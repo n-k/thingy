@@ -1,3 +1,5 @@
+use std::{collections::HashSet, path::PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 /// A workspace containing build jobs
@@ -7,7 +9,86 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    pub fn from_dir_path(path: &PathBuf) -> std::result::Result<Workspace, Box<dyn std::error::Error>> {
+        println!("Initing thingy in workspace {:?}", &path);
     
+        let ws_yaml_path = path.clone().join("thingy.yaml");
+    
+        let md = std::fs::metadata(&ws_yaml_path);
+        if let Err(err) = &md {
+            return Err(format!(
+                "Could not read config from {:?}. Exiting. Does the file exist? Error: {:?}",
+                &ws_yaml_path, &err
+            )
+            .into());
+        }
+        let md = md.unwrap();
+        if !md.is_file() {
+            return Err(format!("{:?} is not a regular file. Exiting.", &ws_yaml_path).into());
+        }
+        let contents = std::fs::read_to_string(&ws_yaml_path);
+        if let Err(err) = &contents {
+            return Err(format!(
+                "Could not read {:?}. Exiting. Error: {:?}",
+                &ws_yaml_path, &err
+            )
+            .into());
+        }
+        let contents = contents.unwrap();
+        let ws = serde_yaml::from_str::<Workspace>(&contents);
+    
+        if let Err(err) = &ws {
+            return Err(format!(
+                "Could not read {:?}. Exiting. Does the file contain valid YAML? Error: {:?}",
+                &ws_yaml_path, &err
+            )
+            .into());
+        }
+    
+        let mut ws = ws.unwrap();
+        let names: Vec<&str> = ws.jobs.iter().map(|j| j.name.trim()).collect();
+    
+        let mut uniq = HashSet::<&str>::new();
+        for n in names {
+            if n.is_empty() {
+                return Err("Found job with empty name. Exiting.".into());
+            }
+            if uniq.contains(n) {
+                return Err(format!("Workspace config contains duplicate jobs with name '{}'. Note that names are trimmed when read. Exiting.", n).into());
+            }
+            uniq.insert(n);
+        }
+    
+        for j in &mut ws.jobs {
+            if let Err(err) = &j.validate() {
+                return Err(
+                    format!("Configuration for {} is invalid: {}. Exiting.", j.name, err).into(),
+                );
+            }
+        }
+    
+        // ensure job dirs
+        for j in &ws.jobs {
+            let name = j.name.trim();
+            let dir = path.join(name);
+    
+            if dir.is_file() {
+                return Err(format!("{:?} is a file. Expected directory or nothing.", &dir).into());
+            }
+    
+            if !dir.exists() {
+                if let Err(err) = std::fs::create_dir_all(&dir) {
+                    return Err(format!(
+                        "Could not create job dir {:?}. Exiting. Error: {:?}",
+                        &dir, &err
+                    )
+                    .into());
+                }
+            }
+        }
+    
+        Ok(ws)
+    }
 }
 
 /// A build job

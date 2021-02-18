@@ -1,10 +1,12 @@
+use actix::prelude::*;
+use std::io::prelude::*;
 use std::{
+    fs::OpenOptions,
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Child, Command, Stdio},
+    writeln,
 };
-
-use actix::prelude::*;
 
 use crate::branch_actor::BranchActor;
 
@@ -14,7 +16,10 @@ pub struct BuildActor {
     dir: PathBuf,
     commit_hash: Option<String>,
     parent: Addr<BranchActor>,
+    log_file_path: PathBuf,
     process: Option<Child>,
+    num: u64,
+    status: String,
 }
 
 impl BuildActor {
@@ -23,13 +28,18 @@ impl BuildActor {
         dir: PathBuf,
         commit_hash: Option<String>,
         parent: Addr<BranchActor>,
+        log_file_path: PathBuf,
+        num: u64,
     ) -> Self {
         BuildActor {
             command,
             dir,
             commit_hash,
             parent,
+            log_file_path,
             process: None,
+            num,
+            status: "finished".into(),
         }
     }
 }
@@ -65,25 +75,40 @@ impl Actor for BuildActor {
         if let Ok(mut child) = spawn_result {
             let std_out = child.stdout.take().unwrap();
             let std_err = child.stderr.take().unwrap();
-            self.process.replace(child);
+            // self.process.replace(child);
 
             // spawn threada to transfer buffers and notify actor
             let reader = BufReader::new(std_out);
+            let log_file = self.log_file_path.clone();
             let h = std::thread::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .create(true)
+                    .open(log_file)
+                    .unwrap();
+
                 reader
                     .lines()
                     .filter_map(|line| line.ok())
                     .for_each(|line| {
-                        println!("{}", line);
+                        let _ = writeln!(file, "[out] {}", line);
                     });
             });
             let reader = BufReader::new(std_err);
+            let log_file = self.log_file_path.clone();
             let h2 = std::thread::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .create(true)
+                    .open(log_file)
+                    .unwrap();
                 reader
                     .lines()
                     .filter_map(|line| line.ok())
                     .for_each(|line| {
-                        eprintln!("{}", line);
+                        let _ = writeln!(file, "[err] {}", line);
                     });
             });
             let adr = _ctx.address();
@@ -91,8 +116,7 @@ impl Actor for BuildActor {
                 let _ = h.join();
                 let _ = h2.join();
                 adr.do_send(BuildMessage::Stop);
-            })
-            .join();
+            });
         } else {
             _ctx.stop();
         }
@@ -101,15 +125,31 @@ impl Actor for BuildActor {
     fn stopped(&mut self, _ctx: &mut Context<Self>) {
         match self.process.take() {
             Some(mut ch) => {
-                let _ = ch.kill();
+                if let Ok(Some(status)) = ch.try_wait() {
+                    self.status = if status.success() {
+                        "finished".into()
+                    } else {
+                        "error".into()
+                    };
+                } else {
+                    let _ = ch.kill();
+                    if let Ok(Some(status)) = ch.try_wait() {
+                        self.status = if status.success() {
+                            "finished".into()
+                        } else {
+                            "error".into()
+                        };
+                    }
+                }
             }
             None => {}
         }
         self.parent
             .do_send(crate::branch_actor::BranchMessage::BuildStopped {
-                addr: _ctx.address(),
+                build_num: self.num,
+                status: self.status.clone(),
             });
-        println!("Build stopped");
+        println!("Build finished");
     }
 }
 

@@ -69,7 +69,6 @@ pub fn get_branch_hashes(
     let connection = remote.connect_auth(Direction::Fetch, Some(callbacks), None)?;
     let mut hashes: HashMap<String, String> = HashMap::new();
     for b in connection.list()?.iter() {
-        println!("{}", b.name());
         if b.name().starts_with("refs/heads/") {
             let bname = b.name()[11..].to_string();
             hashes.insert(bname, b.oid().to_string());

@@ -6,6 +6,7 @@ use crate::{
     models::*,
 };
 use actix::prelude::*;
+use serde::Serialize;
 
 #[derive(Debug)]
 pub struct JobActor {
@@ -24,7 +25,6 @@ impl JobActor {
     }
 
     /// poll branches for a job
-    /// owns and keeps branch actors in sync
     fn _poll(&mut self, context: &mut Context<Self>) {
         context.address().do_send(JobMessage::Poll);
     }
@@ -34,34 +34,40 @@ impl JobActor {
 #[rtype(result = "Result<JobResponse, std::io::Error>")]
 pub enum JobMessage {
     Poll,
+    GetDetails,
+    GetBranchActor(String),
 }
 
 #[derive(Debug)]
 pub enum JobResponse {
     Ack,
+    JobDetails(JobDetailsResponse),
+    Branch { addr: Option<Addr<BranchActor>> },
+}
+
+#[derive(Debug, Serialize)]
+pub struct JobDetailsResponse {
+    name: String,
+    branches: Vec<String>,
 }
 
 impl Actor for JobActor {
     type Context = Context<Self>;
 
     fn started(&mut self, _ctx: &mut Context<Self>) {
-        println!("Job actor started");
         if let Some(i) = self.job.poll_interval_seconds {
             _ctx.run_interval(Duration::from_secs(i), Self::_poll);
         }
+        _ctx.notify(JobMessage::Poll);
     }
 
-    fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        println!("Job actor stopped");
-    }
+    fn stopped(&mut self, _ctx: &mut Context<Self>) {}
 }
 
 impl Handler<JobMessage> for JobActor {
     type Result = Result<JobResponse, std::io::Error>;
 
     fn handle(&mut self, _msg: JobMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        println!("Message received: {:#?}", _msg);
-
         match _msg {
             JobMessage::Poll => {
                 if let Ok(hashes) = get_branch_hashes(&self.job.repo_url, self.job.auth.as_ref()) {
@@ -74,14 +80,9 @@ impl Handler<JobMessage> for JobActor {
                                 // ensure dir
                                 let bpath = self.dir.join(k);
                                 create_dir_all(&bpath)?;
-                                // todo: keep track of last seen state in file in branch dir
-                                let h = BranchActor::new(
-                                    self.job.clone(),
-                                    k.clone(),
-                                    bpath,
-                                    "".into(),
-                                )
-                                .start();
+                                let h =
+                                    BranchActor::new(self.job.clone(), k.clone(), bpath, "".into())
+                                        .start();
                                 self.branch_actors.insert(k.clone(), h);
                                 self.branch_actors
                                     .get(k)
@@ -98,9 +99,22 @@ impl Handler<JobMessage> for JobActor {
                         .filter(|(k, _)| hashes.contains_key(k))
                         .collect();
                 }
+                Ok(JobResponse::Ack)
+            }
+            JobMessage::GetDetails => {
+                let branches: Vec<String> =
+                    self.branch_actors.iter().map(|(k, _)| k.clone()).collect();
+                Ok(JobResponse::JobDetails(JobDetailsResponse {
+                    name: self.job.name.clone(),
+                    branches,
+                }))
+            }
+            JobMessage::GetBranchActor(b) => {
+                let addr = self.branch_actors
+                    .get(&b)
+                    .map(|a| a.clone());
+                Ok(JobResponse::Branch { addr })
             }
         }
-
-        Ok(JobResponse::Ack)
     }
 }

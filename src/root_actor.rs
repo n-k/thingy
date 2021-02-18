@@ -36,7 +36,6 @@ impl Actor for Thingy {
     type Context = Context<Self>;
 
     fn started(&mut self, _ctx: &mut Context<Self>) {
-        println!("Actor is alive");
         for j in &self.workpace.jobs {
             let d = self.dir.clone().join(j.name.clone());
             let ja = JobActor::new(j.clone(), d).start();
@@ -45,7 +44,6 @@ impl Actor for Thingy {
     }
 
     fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        println!("Root actor is stopped");
     }
 }
 
@@ -53,8 +51,6 @@ impl Handler<ThingyMessage> for Thingy {
     type Result = Result<ThingyResponse, std::io::Error>;
 
     fn handle(&mut self, _msg: ThingyMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        println!("received {:#?}", _msg);
-
         match _msg {
             ThingyMessage::GetJobs => {
                 return Ok(ThingyResponse::Jobs {

@@ -1,30 +1,275 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>code, technlogy, random stuff</title>
-    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
-    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" />
-    <link
-      rel="apple-touch-icon"
-      sizes="120x120"
-      href="/favicon.ico"
-    />
-    <link
-      rel="apple-touch-icon"
-      sizes="152x152"
-      href="/favicon.ico"
-    />
-    <link rel="stylesheet" href="./index.css" />
-
-    <script src="./vendor/jquery-3.5.1.slim.min.js"></script>
-    <script src="./vendor/preact-10.4.8.min.js"></script>
-    <script src="./vendor/htm-3.0.4.min.js"></script>
-    <script src="./vendor/preact-router.js"></script>
+    <title>thingy.rs</title>
+    <script>
+      window.exports = window;
+      window["tiny-warning"] = function () {
+        console.log(arguments);
+      };
+      window.require = function (name) {
+        return window[name];
+      };
+      window.warning = function () {
+        console.log(arguments);
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/history@4.10.1/cjs/history.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/preact/10.5.12/preact.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htm/3.0.4/htm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/preact-router/3.2.1/preact-router.js"></script>
     <script>
       html = htm.bind(preact.h);
     </script>
+    <style>
+      html {
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      * {
+        padding: unset;
+        margin: unset;
+      }
+      h1,
+      h2,
+      h3,
+      h4,
+      h5 {
+        display: unset;
+      }
+      table {
+        width: 100%;
+        text-align: justify;
+      }
+      .root {
+        max-width: 1500px;
+        margin-left: 15%;
+        margin-right: 15%;
+      }
+      .nav {
+        margin-bottom: 2em;
+      }
+      .job-list .item {
+        display: flex;
+        justify-content: space-between;
+      }
+      .title {
+        padding-top: 1em;
+        padding-bottom: 1em;
+        margin-bottom: 1em;
+        display: flex;
+        justify-content: space-between;
+        background-color: aliceblue;
+      }
+    </style>
+    <base href="/index.html" />
   </head>
   <body>
-    <script src="/index.js"></script>
+    <script type="module">
+      const { Component, render, createRef } = preact;
+      const { Router, route, Link } = preactRouter;
+      const { createHashHistory, createBrowserHistory } = window;
+
+      class App extends Component {
+        constructor(props) {
+          super(props);
+          this.setState({});
+        }
+
+        render(_props, {}) {
+          return html`
+    <div class="root">
+      <nav class="nav">
+        <${Link} href="/">Home</a>
+      </nav>
+      <${Router} history=${createHashHistory()}>
+        <${Jobs} path="/" />
+        <${Job} path="/jobs/:id" />
+        <${Branch} path="/jobs/:job/branches/:branch" />
+        <${Error} type="404" default />
+      </${Router}>
+    </div>`;
+        }
+      }
+
+      class Jobs extends Component {
+        constructor(props) {
+          super(props);
+          this.setState({ jobs: [], loading: true });
+        }
+
+        componentDidMount() {
+          fetch("/jobs")
+            .then((res) => {
+              res.json().then((jobs) => {
+                this.setState({ jobs });
+              });
+            })
+            .finally(() => {
+              this.setState({ loading: false });
+            });
+        }
+
+        poll = (id) => {
+          fetch(`/jobs/${id}/poll`, { method: "POST" }).then((res) => {
+            res.json().then((data) => console.log(data));
+          });
+        };
+
+        renderJob(job) {
+          return html`
+      <div class="item">
+        <div><${Link} href=${`/jobs/${job.name}`}>${job.name}</Link></div>
+        <div><a href="javascript:void(0);" onClick=${() =>
+          this.poll(job.name)}>Poll now</a></div>
+      </div>
+    `;
+        }
+
+        render() {
+          const { loading, jobs } = this.state;
+          return html`
+            <div class="job-list">
+              ${loading
+                ? html`<p>Loading...</p>`
+                : jobs.map((j) => this.renderJob(j))}
+            </div>
+          `;
+        }
+      }
+
+      class Job extends Component {
+        constructor(props) {
+          super(props);
+          this.setState({ job: undefined, loading: true });
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        loadData = () => {
+          const { id } = this.props;
+          this.setState({ loading: true }, () => {
+            fetch(`/jobs/${id}`).then((res) => {
+              res.json().then((job) => {
+                this.setState({ job: job || {}, loading: false });
+              });
+            });
+          });
+        };
+        poll = () => {
+          const { id } = this.props;
+          fetch(`/jobs/${id}/poll`, { method: "POST" }).then((res) => {
+            this.loadData();
+          });
+        };
+        render() {
+          const { loading, job } = this.state;
+          return html`<div class="job">
+            ${loading
+              ? "Loading..."
+              : html`
+                  <div class="title">
+                    <div><h4>${job.name}</h4></div>
+                    <div>
+                      <a href="javascript:void(0);" onClick=${this.poll}
+                        >Poll Now</a
+                      >
+                    </div>
+                    <div>
+                      <a href="javascript:void(0);" onClick=${this.loadData}
+                        >Reload</a
+                      >
+                    </div>
+                  </div>
+                  <div>Branches</div>
+                  <div class="branch-list">
+                    ${(job.branches || []).map(
+                      (b) => html`
+          <div class="item">
+            <div><${Link} href=${`/jobs/${job.name}/branches/${b}`}>${b}</${Link}></div>
+          </div>
+        `
+                    )}
+                  </div>
+                `}
+          </div>`;
+        }
+      }
+
+      class Branch extends Component {
+        constructor(props) {
+          super(props);
+          this.state = { loading: true, branchDetails: undefined };
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        loadData = () => {
+          const { job, branch } = this.props;
+          this.setState({ loading: true }, () => {
+            fetch(`/jobs/${job}/branches/${branch}`).then((res) => {
+              res.json().then((branchDetails) => {
+                this.setState({ branchDetails, loading: false });
+              });
+            });
+          });
+        };
+        render({ job, branch }, { loading, branchDetails }) {
+          console.log(job, branch, loading, branchDetails);
+          if (loading) return "Loading...";
+          return html`<div class="branch">
+      <div class="title">
+        <div><${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}>/<h4>${branch}</h4></div>
+        <div><a href="javascript:void(0);">Build Now</a></div>
+        <div><a href="javascript:void(0);" onClick=${
+          this.loadData
+        }>Reload</a></div>
+      </div>
+      <div>
+        <table>
+          <thead>
+            <tr><th colspan="3">Builds</th></tr>
+            <tr><th>Build #</th><th>Commit</th><th>Status</th></tr>
+          </thead>  
+          <tbody>
+            ${(branchDetails.builds || []).map(
+              (b) => html`
+                <tr>
+                  <td>${b.build_num}</td>
+                  <td>${b.commit_hash}</td>
+                  <td>${b.status}</td>
+                </tr>
+              `
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+        }
+      }
+
+      class Error extends Component {
+        render() {
+          const { type, url } = this.props;
+          return html`<section class="error">
+            <h2>Error ${type}</h2>
+            <p>It looks like we hit a snag.</p>
+            <pre>${url}</pre>
+
+            <div>Go to <a href="/">home</a></div>
+          </section>`;
+        }
+      }
+
+      render(html`<${App} page="All" />`, document.body);
+    </script>
   </body>
 </html>
