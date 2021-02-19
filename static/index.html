@@ -88,12 +88,13 @@
           return html`
     <div class="root">
       <nav class="nav">
-        <${Link} href="/">Home</a>
+        <h3>Thingy build server and thing-doer</h3>
       </nav>
       <${Router} history=${createHashHistory()}>
         <${Jobs} path="/" />
         <${Job} path="/jobs/:id" />
         <${Branch} path="/jobs/:job/branches/:branch" />
+        <${Log} path="/jobs/:job/branches/:branch/builds/:build_num/log" />
         <${Error} type="404" default />
       </${Router}>
     </div>`;
@@ -124,23 +125,20 @@
           });
         };
 
-        renderJob(job) {
+        render() {
+          const { loading, jobs } = this.state;
+          if (loading) return "Loading...";
           return html`
+            <div class="job-list">
+              ${jobs.map(
+                (job) => html`
       <div class="item">
         <div><${Link} href=${`/jobs/${job.name}`}>${job.name}</Link></div>
         <div><a href="javascript:void(0);" onClick=${() =>
           this.poll(job.name)}>Poll now</a></div>
       </div>
-    `;
-        }
-
-        render() {
-          const { loading, jobs } = this.state;
-          return html`
-            <div class="job-list">
-              ${loading
-                ? html`<p>Loading...</p>`
-                : jobs.map((j) => this.renderJob(j))}
+    `
+              )}
             </div>
           `;
         }
@@ -177,7 +175,9 @@
               ? "Loading..."
               : html`
                   <div class="title">
-                    <div><h4>${job.name}</h4></div>
+                    <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4>${
+                  job.name
+                }</h4></div>
                     <div>
                       <a href="javascript:void(0);" onClick=${this.poll}
                         >Poll Now</a
@@ -227,7 +227,7 @@
           if (loading) return "Loading...";
           return html`<div class="branch">
       <div class="title">
-        <div><${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}>/<h4>${branch}</h4></div>
+        <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}> / <h4>${branch}</h4></div>
         <div><a href="javascript:void(0);">Build Now</a></div>
         <div><a href="javascript:void(0);" onClick=${
           this.loadData
@@ -236,8 +236,8 @@
       <div>
         <table>
           <thead>
-            <tr><th colspan="3">Builds</th></tr>
-            <tr><th>Build #</th><th>Commit</th><th>Status</th></tr>
+            <tr><th colspan="4">Builds</th></tr>
+            <tr><th>Build #</th><th>Commit</th><th>Status</th><th></th></tr>
           </thead>  
           <tbody>
             ${(branchDetails.builds || []).map(
@@ -246,6 +246,7 @@
                   <td>${b.build_num}</td>
                   <td>${b.commit_hash}</td>
                   <td>${b.status}</td>
+                  <td><${Link} href=${`/jobs/${job}/branches/${branch}/builds/${b.build_num}/log`}>View Logs</${Link}></td>
                 </tr>
               `
             )}
@@ -253,6 +254,54 @@
         </table>
       </div>
     </div>`;
+        }
+      }
+
+      class Log extends Component {
+        constructor(props) {
+          super(props);
+          this.state = {
+            line_idx: 0,
+            page_size: 10,
+            loading: false,
+            lines: [],
+          };
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        loadData = () => {
+          const { job, branch, build_num } = this.props;
+          const { line_idx, page_size, lines: existingLines } = this.state;
+          this.setState({ loading: true }, () => {
+            fetch(
+              `/jobs/${job}/branches/${branch}/builds/${build_num}/log?start=${line_idx}&num_lines=${page_size}`
+            ).then((res) => {
+              res.json().then(({ has_more, lines }) => {
+                existingLines.push(...lines);
+                this.setState({ lines: [...existingLines] });
+                if (has_more) {
+                  setTimeout(() => {
+                    this.setState({ line_idx: line_idx + page_size }, () =>
+                      this.loadData()
+                    );
+                  }, 100);
+                }
+              });
+            });
+          });
+        };
+        render({ job, branch, build_num }, { lines }) {
+          return html`<div class="title">
+          <div>
+            <h4><${Link} href=${`/`}>Home</${Link}></h4> / 
+            <h4><${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}></h4> / 
+            <h4><${Link} href=${`/jobs/${job}/branches/${branch}`}><h4>${branch}</h4></${Link}></h4> /
+            <h4>${build_num}</h4> / logs
+          </div>
+          <div><a href="javascript:void(0);" onClick=${this.loadData}>Reload</a></div>
+        </div>
+        <div>${lines.map((l) => html`<pre>${l}</pre>`)}</div>`;
         }
       }
 

@@ -1,7 +1,8 @@
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{create_dir_all, remove_dir_all},
+    fs::{create_dir_all, remove_dir_all, File},
+    io::{BufRead, BufReader},
     path::PathBuf,
 };
 
@@ -120,18 +121,19 @@ impl Actor for BranchActor {
 }
 
 #[derive(Message, Debug)]
-#[rtype(result = "Result<BranchResponse, std::io::Error>")]
-pub enum BranchMessage {
-    NewCommit { hash: String },
-    BuildStopped { build_num: u64, status: String },
-    GetDetails,
+#[rtype(result = "Result<(), std::io::Error>")]
+pub struct NewCommitMsg(pub String);
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<(), std::io::Error>")]
+pub struct BuildStoppedMsg {
+    pub build_num: u64,
+    pub status: String,
 }
 
-#[derive(Debug)]
-pub enum BranchResponse {
-    Ack,
-    Details(BranchDetails),
-}
+#[derive(Message, Debug)]
+#[rtype(result = "Result<BranchDetails, std::io::Error>")]
+pub struct GetBranchDetailsMsg;
 
 #[derive(Debug, Clone)]
 struct BuildLink {
@@ -152,37 +154,87 @@ pub struct BuildDetails {
     status: String,
 }
 
-impl Handler<BranchMessage> for BranchActor {
-    type Result = Result<BranchResponse, std::io::Error>;
+#[derive(Message, Debug)]
+#[rtype(result = "Result<LogResponse, std::io::Error>")]
+pub struct GetBuildLogLinesMsg {
+    pub build_num: u64,
+    pub start: u32,
+    pub num_lines: u32,
+}
+#[derive(Debug, Serialize)]
+pub struct LogResponse {
+    pub lines: Vec<String>,
+    pub has_more: bool,
+}
 
-    fn handle(&mut self, _msg: BranchMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        match _msg {
-            BranchMessage::NewCommit { hash } => {
-                if !self.state.last_seen_commit.eq(&hash) {
-                    self.start_build(_ctx, hash.as_str())?;
-                }
-                Ok(BranchResponse::Ack)
-            }
-            BranchMessage::BuildStopped { build_num, status } => {
-                self.builds = self
-                    .builds
-                    .clone()
-                    .into_iter()
-                    .filter(|b| b.build_num != build_num)
-                    .collect();
-                self.state
-                    .builds
-                    .iter_mut()
-                    .filter(|b| b.build_num == build_num)
-                    .for_each(|b| {
-                        b.status = status.clone();
-                    });
-                self.write_data_file()?;
-                Ok(BranchResponse::Ack)
-            }
-            BranchMessage::GetDetails => {
-                Ok(BranchResponse::Details(self.state.clone()))
-            }
+impl Handler<NewCommitMsg> for BranchActor {
+    type Result = Result<(), std::io::Error>;
+
+    fn handle(&mut self, msg: NewCommitMsg, ctx: &mut Self::Context) -> Self::Result {
+        if !self.state.last_seen_commit.eq(&msg.0) {
+            self.start_build(ctx, msg.0.as_str())?;
         }
+        Ok(())
+    }
+}
+
+impl Handler<BuildStoppedMsg> for BranchActor {
+    type Result = Result<(), std::io::Error>;
+
+    fn handle(&mut self, msg: BuildStoppedMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.builds = self
+            .builds
+            .clone()
+            .into_iter()
+            .filter(|b| b.build_num != msg.build_num)
+            .collect();
+        self.state
+            .builds
+            .iter_mut()
+            .filter(|b| b.build_num == msg.build_num)
+            .for_each(|b| {
+                b.status = msg.status.clone();
+            });
+        self.write_data_file()?;
+        Ok(())
+    }
+}
+
+impl Handler<GetBranchDetailsMsg> for BranchActor {
+    type Result = Result<BranchDetails, std::io::Error>;
+
+    fn handle(&mut self, _msg: GetBranchDetailsMsg, _ctx: &mut Self::Context) -> Self::Result {
+        Ok(self.state.clone())
+    }
+}
+
+impl Handler<GetBuildLogLinesMsg> for BranchActor {
+    type Result = Result<LogResponse, std::io::Error>;
+
+    fn handle(&mut self, _msg: GetBuildLogLinesMsg, _ctx: &mut Self::Context) -> Self::Result {
+        let log_file = self.dir.join(format!("{}", _msg.build_num)).join("log.txt");
+        if log_file.exists() {
+            let file = File::open(&log_file)?;
+            let reader = BufReader::new(file);
+
+            let lines = reader
+                .lines()
+                .filter(|l| l.is_ok())
+                .map(|l| l.unwrap())
+                .skip(_msg.start as usize);
+            let mut batch: Vec<String> = lines.take(_msg.num_lines as usize + 1).collect();
+            let has_more = batch.len() >= _msg.num_lines as usize;
+            if has_more {
+                for _ in batch.drain(_msg.num_lines as usize..) {}
+            }
+            return Ok(LogResponse {
+                lines: batch,
+                has_more,
+            });
+        }
+        Ok(LogResponse {
+            lines: vec![],
+            has_more: false,
+        })
     }
 }

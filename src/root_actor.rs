@@ -20,17 +20,16 @@ impl Thingy {
 }
 
 #[derive(Message, Debug)]
-#[rtype(result = "Result<ThingyResponse, std::io::Error>")]
-pub enum ThingyMessage {
-    GetJobs,
-    GetJobActor(String),
-}
-
+#[rtype(result = "Result<GetJobResponse, std::io::Error>")]
+pub struct GetJobsMsg;
 #[derive(Debug)]
-pub enum ThingyResponse {
-    Jobs { jobs: Vec<Job> },
-    Job { addr: Option<Addr<JobActor>> },
-}
+pub struct GetJobResponse(pub Vec<Job>);
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<GetJobActorResponse, std::io::Error>")]
+pub struct GetJobActorMsg(pub String);
+#[derive(Debug)]
+pub struct GetJobActorResponse(pub Option<Addr<JobActor>>);
 
 impl Actor for Thingy {
     type Context = Context<Self>;
@@ -43,28 +42,26 @@ impl Actor for Thingy {
         }
     }
 
-    fn stopped(&mut self, _ctx: &mut Context<Self>) {
+    fn stopped(&mut self, _ctx: &mut Context<Self>) {}
+}
+
+impl Handler<GetJobsMsg> for Thingy {
+    type Result = Result<GetJobResponse, std::io::Error>;
+
+    fn handle(&mut self, _msg: GetJobsMsg, _ctx: &mut Self::Context) -> Self::Result {
+        Ok(GetJobResponse(self.workpace.jobs.clone()))
     }
 }
 
-impl Handler<ThingyMessage> for Thingy {
-    type Result = Result<ThingyResponse, std::io::Error>;
+impl Handler<GetJobActorMsg> for Thingy {
+    type Result = Result<GetJobActorResponse, std::io::Error>;
 
-    fn handle(&mut self, _msg: ThingyMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        match _msg {
-            ThingyMessage::GetJobs => {
-                return Ok(ThingyResponse::Jobs {
-                    jobs: self.workpace.jobs.clone(),
-                });
-            }
-            ThingyMessage::GetJobActor(name) => {
-                let addr = self
-                    .job_actors
-                    .iter()
-                    .find(|(k, _)| k.eq(&&name))
-                    .map(|(_, v)| v.clone());
-                Ok(ThingyResponse::Job { addr })
-            }
-        }
+    fn handle(&mut self, msg: GetJobActorMsg, _ctx: &mut Self::Context) -> Self::Result {
+        let addr = self
+            .job_actors
+            .iter()
+            .find(|(k, _)| k.eq(&&msg.0))
+            .map(|(_, v)| v.clone());
+        Ok(GetJobActorResponse(addr))
     }
 }

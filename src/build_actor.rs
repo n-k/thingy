@@ -8,7 +8,7 @@ use std::{
     writeln,
 };
 
-use crate::branch_actor::BranchActor;
+use crate::branch_actor::{BranchActor, BuildStoppedMsg};
 
 #[derive(Debug)]
 pub struct BuildActor {
@@ -144,11 +144,10 @@ impl Actor for BuildActor {
             }
             None => {}
         }
-        self.parent
-            .do_send(crate::branch_actor::BranchMessage::BuildStopped {
-                build_num: self.num,
-                status: self.status.clone(),
-            });
+        self.parent.do_send(BuildStoppedMsg {
+            build_num: self.num,
+            status: self.status.clone(),
+        });
         println!("Build finished");
     }
 }

@@ -21,7 +21,8 @@
             },
             "args": ["./tmp"],
             "env": {
-                "RUST_BACKTRACE": "1"
+                "RUST_BACKTRACE": "1",
+                "SERVE_STATIC": "true"
             },
             "cwd": "${workspaceFolder}"
         },

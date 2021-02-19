@@ -9,11 +9,13 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn from_dir_path(path: &PathBuf) -> std::result::Result<Workspace, Box<dyn std::error::Error>> {
+    pub fn from_dir_path(
+        path: &PathBuf,
+    ) -> std::result::Result<Workspace, Box<dyn std::error::Error>> {
         println!("Initing thingy in workspace {:?}", &path);
-    
+
         let ws_yaml_path = path.clone().join("thingy.yaml");
-    
+
         let md = std::fs::metadata(&ws_yaml_path);
         if let Err(err) = &md {
             return Err(format!(
@@ -36,7 +38,7 @@ impl Workspace {
         }
         let contents = contents.unwrap();
         let ws = serde_yaml::from_str::<Workspace>(&contents);
-    
+
         if let Err(err) = &ws {
             return Err(format!(
                 "Could not read {:?}. Exiting. Does the file contain valid YAML? Error: {:?}",
@@ -44,10 +46,10 @@ impl Workspace {
             )
             .into());
         }
-    
+
         let mut ws = ws.unwrap();
         let names: Vec<&str> = ws.jobs.iter().map(|j| j.name.trim()).collect();
-    
+
         let mut uniq = HashSet::<&str>::new();
         for n in names {
             if n.is_empty() {
@@ -58,7 +60,7 @@ impl Workspace {
             }
             uniq.insert(n);
         }
-    
+
         for j in &mut ws.jobs {
             if let Err(err) = &j.validate() {
                 return Err(
@@ -66,16 +68,16 @@ impl Workspace {
                 );
             }
         }
-    
+
         // ensure job dirs
         for j in &ws.jobs {
             let name = j.name.trim();
             let dir = path.join(name);
-    
+
             if dir.is_file() {
                 return Err(format!("{:?} is a file. Expected directory or nothing.", &dir).into());
             }
-    
+
             if !dir.exists() {
                 if let Err(err) = std::fs::create_dir_all(&dir) {
                     return Err(format!(
@@ -86,7 +88,7 @@ impl Workspace {
                 }
             }
         }
-    
+
         Ok(ws)
     }
 }

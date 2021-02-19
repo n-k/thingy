@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::create_dir_all, path::PathBuf, time::Duration};
 
 use crate::{
-    branch_actor::{BranchActor, BranchMessage},
+    branch_actor::{BranchActor, NewCommitMsg},
     git_utils::get_branch_hashes,
     models::*,
 };
@@ -26,30 +26,27 @@ impl JobActor {
 
     /// poll branches for a job
     fn _poll(&mut self, context: &mut Context<Self>) {
-        context.address().do_send(JobMessage::Poll);
+        context.address().do_send(JobPollMsg);
     }
 }
 
 #[derive(Message, Debug)]
-#[rtype(result = "Result<JobResponse, std::io::Error>")]
-pub enum JobMessage {
-    Poll,
-    GetDetails,
-    GetBranchActor(String),
-}
+#[rtype(result = "Result<(), std::io::Error>")]
+pub struct JobPollMsg;
 
-#[derive(Debug)]
-pub enum JobResponse {
-    Ack,
-    JobDetails(JobDetailsResponse),
-    Branch { addr: Option<Addr<BranchActor>> },
-}
+#[derive(Message, Debug)]
+#[rtype(result = "Result<JobDetailsResponse, std::io::Error>")]
+pub struct GetJobDetailsMsg;
 
 #[derive(Debug, Serialize)]
 pub struct JobDetailsResponse {
     name: String,
     branches: Vec<String>,
 }
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<Option<Addr<BranchActor>>, std::io::Error>")]
+pub struct GetBranchActorMsg(pub String);
 
 impl Actor for JobActor {
     type Context = Context<Self>;
@@ -58,63 +55,64 @@ impl Actor for JobActor {
         if let Some(i) = self.job.poll_interval_seconds {
             _ctx.run_interval(Duration::from_secs(i), Self::_poll);
         }
-        _ctx.notify(JobMessage::Poll);
+        _ctx.notify(JobPollMsg);
     }
 
     fn stopped(&mut self, _ctx: &mut Context<Self>) {}
 }
 
-impl Handler<JobMessage> for JobActor {
-    type Result = Result<JobResponse, std::io::Error>;
+impl Handler<JobPollMsg> for JobActor {
+    type Result = Result<(), std::io::Error>;
 
-    fn handle(&mut self, _msg: JobMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        match _msg {
-            JobMessage::Poll => {
-                if let Ok(hashes) = get_branch_hashes(&self.job.repo_url, self.job.auth.as_ref()) {
-                    for (k, v) in hashes.iter() {
-                        match self.branch_actors.get(k) {
-                            Some(a) => {
-                                a.do_send(BranchMessage::NewCommit { hash: v.clone() });
-                            }
-                            _ => {
-                                // ensure dir
-                                let bpath = self.dir.join(k);
-                                create_dir_all(&bpath)?;
-                                let h =
-                                    BranchActor::new(self.job.clone(), k.clone(), bpath, "".into())
-                                        .start();
-                                self.branch_actors.insert(k.clone(), h);
-                                self.branch_actors
-                                    .get(k)
-                                    .unwrap()
-                                    .do_send(BranchMessage::NewCommit { hash: v.clone() });
-                            }
-                        }
+    fn handle(&mut self, _msg: JobPollMsg, _ctx: &mut Self::Context) -> Self::Result {
+        if let Ok(hashes) = get_branch_hashes(&self.job.repo_url, self.job.auth.as_ref()) {
+            for (k, v) in hashes.iter() {
+                match self.branch_actors.get(k) {
+                    Some(a) => {
+                        a.do_send(NewCommitMsg(v.clone()));
                     }
-                    // remove branches which are no longer present
-                    self.branch_actors = self
-                        .branch_actors
-                        .clone()
-                        .into_iter()
-                        .filter(|(k, _)| hashes.contains_key(k))
-                        .collect();
+                    _ => {
+                        // ensure dir
+                        let bpath = self.dir.join(k);
+                        create_dir_all(&bpath)?;
+                        let h =
+                            BranchActor::new(self.job.clone(), k.clone(), bpath, "".into()).start();
+                        self.branch_actors.insert(k.clone(), h);
+                        self.branch_actors
+                            .get(k)
+                            .unwrap()
+                            .do_send(NewCommitMsg(v.clone()));
+                    }
                 }
-                Ok(JobResponse::Ack)
             }
-            JobMessage::GetDetails => {
-                let branches: Vec<String> =
-                    self.branch_actors.iter().map(|(k, _)| k.clone()).collect();
-                Ok(JobResponse::JobDetails(JobDetailsResponse {
-                    name: self.job.name.clone(),
-                    branches,
-                }))
-            }
-            JobMessage::GetBranchActor(b) => {
-                let addr = self.branch_actors
-                    .get(&b)
-                    .map(|a| a.clone());
-                Ok(JobResponse::Branch { addr })
-            }
+            // remove branches which are no longer present
+            self.branch_actors = self
+                .branch_actors
+                .clone()
+                .into_iter()
+                .filter(|(k, _)| hashes.contains_key(k))
+                .collect();
         }
+        Ok(())
+    }
+}
+
+impl Handler<GetJobDetailsMsg> for JobActor {
+    type Result = Result<JobDetailsResponse, std::io::Error>;
+
+    fn handle(&mut self, _msg: GetJobDetailsMsg, _ctx: &mut Self::Context) -> Self::Result {
+        let branches: Vec<String> = self.branch_actors.iter().map(|(k, _)| k.clone()).collect();
+        Ok(JobDetailsResponse {
+            name: self.job.name.clone(),
+            branches,
+        })
+    }
+}
+
+impl Handler<GetBranchActorMsg> for JobActor {
+    type Result = Result<Option<Addr<BranchActor>>, std::io::Error>;
+
+    fn handle(&mut self, msg: GetBranchActorMsg, _ctx: &mut Self::Context) -> Self::Result {
+        Ok(self.branch_actors.get(&msg.0).map(|a| a.clone()))
     }
 }
