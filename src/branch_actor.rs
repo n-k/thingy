@@ -18,7 +18,7 @@ pub struct BranchActor {
 }
 
 impl BranchActor {
-    pub fn new(job: Job, branch: String, dir: PathBuf, last_seen_commit: String) -> Self {
+    pub fn new(job: Job, branch: String, dir: PathBuf, last_seen_commit: Option<String>) -> Self {
         BranchActor {
             job,
             branch,
@@ -45,7 +45,11 @@ impl BranchActor {
         Ok(next_num)
     }
 
-    fn start_build(&mut self, _ctx: &mut Context<Self>, hash: &str) -> Result<(), std::io::Error> {
+    fn start_build(
+        &mut self,
+        _ctx: &mut Context<Self>,
+        hash: Option<String>,
+    ) -> Result<(), std::io::Error> {
         let bn = self.inc_build_num()?;
         // start a build, update last_seen
         let build_dir = self.dir.join(&format!("{}", bn));
@@ -59,14 +63,14 @@ impl BranchActor {
         if let Ok(_) = clone_commit(
             &self.job.repo_url,
             &self.branch,
-            hash,
+            hash.clone(),
             &checkout_dir,
             self.job.auth.as_ref(),
         ) {
             let h = BuildActor::new(
                 self.job.build_script.clone(),
                 checkout_dir.clone(),
-                Some(hash.to_string()),
+                hash.clone(),
                 _ctx.address(),
                 build_dir.join("log.txt"),
                 bn,
@@ -77,10 +81,12 @@ impl BranchActor {
                 addr: h,
             });
         }
-        self.state.last_seen_commit = hash.to_string();
+        if hash.is_some() {
+            self.state.last_seen_commit = hash.clone();
+        }
         let build = BuildDetails {
             build_num: bn,
-            commit_hash: hash.to_string(),
+            commit_hash: hash,
             status: "building".into(),
         };
         self.state.builds.push(build);
@@ -143,14 +149,14 @@ struct BuildLink {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BranchDetails {
-    last_seen_commit: String,
+    last_seen_commit: Option<String>,
     builds: Vec<BuildDetails>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BuildDetails {
     build_num: u64,
-    commit_hash: String,
+    commit_hash: Option<String>,
     status: String,
 }
 
@@ -165,14 +171,33 @@ pub struct GetBuildLogLinesMsg {
 pub struct LogResponse {
     pub lines: Vec<String>,
     pub has_more: bool,
+    pub status: Option<String>,
+}
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<Option<Addr<BuildActor>>, std::io::Error>")]
+pub struct GetBuildActorMsg(pub u64);
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<(), std::io::Error>")]
+pub struct BuildNowMsg;
+
+impl Handler<BuildNowMsg> for BranchActor {
+    type Result = Result<(), std::io::Error>;
+
+    fn handle(&mut self, _msg: BuildNowMsg, ctx: &mut Self::Context) -> Self::Result {
+        self.start_build(ctx, None)?;
+        Ok(())
+    }
 }
 
 impl Handler<NewCommitMsg> for BranchActor {
     type Result = Result<(), std::io::Error>;
 
     fn handle(&mut self, msg: NewCommitMsg, ctx: &mut Self::Context) -> Self::Result {
-        if !self.state.last_seen_commit.eq(&msg.0) {
-            self.start_build(ctx, msg.0.as_str())?;
+        let hash = Some(msg.0.clone());
+        if !self.state.last_seen_commit.eq(&hash) {
+            self.start_build(ctx, hash)?;
         }
         Ok(())
     }
@@ -227,14 +252,34 @@ impl Handler<GetBuildLogLinesMsg> for BranchActor {
             if has_more {
                 for _ in batch.drain(_msg.num_lines as usize..) {}
             }
+            let status = self
+                .state
+                .builds
+                .iter()
+                .find(|b| b.build_num == _msg.build_num)
+                .map(|b| b.status.clone());
             return Ok(LogResponse {
                 lines: batch,
                 has_more,
+                status,
             });
         }
         Ok(LogResponse {
             lines: vec![],
             has_more: false,
+            status: None,
         })
+    }
+}
+
+impl Handler<GetBuildActorMsg> for BranchActor {
+    type Result = Result<Option<Addr<BuildActor>>, std::io::Error>;
+
+    fn handle(&mut self, msg: GetBuildActorMsg, _ctx: &mut Self::Context) -> Self::Result {
+        Ok(self
+            .builds
+            .iter()
+            .find(|l| l.build_num == msg.0)
+            .map(|a| a.addr.clone()))
     }
 }

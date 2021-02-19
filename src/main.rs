@@ -1,7 +1,8 @@
 use std::{fmt::Display, path::PathBuf};
 
 use actix::prelude::*;
-use branch_actor::{GetBranchDetailsMsg, GetBuildLogLinesMsg};
+use branch_actor::{BuildNowMsg, GetBranchDetailsMsg, GetBuildActorMsg, GetBuildLogLinesMsg};
+use build_actor::StopBuildMessage;
 use job_actor::{GetBranchActorMsg, GetJobDetailsMsg, JobPollMsg};
 use root_actor::{GetJobActorMsg, GetJobActorResponse, GetJobsMsg, Thingy};
 
@@ -230,7 +231,14 @@ async fn get_build_log(
     let info = req_info.into_inner();
     if let GetJobActorResponse(Some(addr)) = data.root.send(GetJobActorMsg(job_id)).await?? {
         if let Some(addr) = addr.send(GetBranchActorMsg(branch)).await?? {
-            Ok(HttpResponse::Ok().json(addr.send(GetBuildLogLinesMsg { build_num, start: info.start, num_lines: info.num_lines }).await??))
+            Ok(HttpResponse::Ok().json(
+                addr.send(GetBuildLogLinesMsg {
+                    build_num,
+                    start: info.start,
+                    num_lines: info.num_lines,
+                })
+                .await??,
+            ))
         } else {
             Err(ApiError::new_with_status(
                 StatusCode::NOT_FOUND,
@@ -246,11 +254,44 @@ async fn get_build_log(
 }
 
 #[post("/jobs/{jobId}/branches/{branch}/builds")]
-async fn force_build() -> Result<HttpResponse, ApiError> {
-    Err(ApiError::new())
+async fn force_build(
+    path: web::Path<(String, String)>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse, ApiError> {
+    let path = path.into_inner();
+    let job_id = path.0;
+    let branch = path.1;
+    if let GetJobActorResponse(Some(addr)) = data.root.send(GetJobActorMsg(job_id)).await?? {
+        if let Some(addr) = addr.send(GetBranchActorMsg(branch)).await?? {
+            addr.do_send(BuildNowMsg);
+            return Err(ApiError::new_with_status(StatusCode::OK, "OK"));
+        }
+    }
+    Err(ApiError::new_with_status(
+        StatusCode::NOT_FOUND,
+        "Not found",
+    ))
 }
 
-#[delete("/jobs/{jobId}/branches/{branch}/builds/{hash}")]
-async fn abort_build() -> Result<HttpResponse, ApiError> {
-    Err(ApiError::new())
+#[delete("/jobs/{jobId}/branches/{branch}/builds/{build_num}")]
+async fn abort_build(
+    path: web::Path<(String, String, u64)>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse, ApiError> {
+    let path = path.into_inner();
+    let job_id = path.0;
+    let branch = path.1;
+    let build_num = path.2;
+    if let GetJobActorResponse(Some(addr)) = data.root.send(GetJobActorMsg(job_id)).await?? {
+        if let Some(addr) = addr.send(GetBranchActorMsg(branch)).await?? {
+            if let Some(addr) = addr.send(GetBuildActorMsg(build_num)).await?? {
+                addr.do_send(StopBuildMessage);
+                return Err(ApiError::new_with_status(StatusCode::OK, "OK"));
+            }
+        }
+    }
+    Err(ApiError::new_with_status(
+        StatusCode::NOT_FOUND,
+        "Not found",
+    ))
 }

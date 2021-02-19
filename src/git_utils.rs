@@ -6,7 +6,7 @@ use tempfile::TempDir;
 pub fn clone_commit(
     url: &str,
     branch: &str,
-    commit_hash: &str,
+    commit_hash: Option<String>,
     dir: &PathBuf,
     auth: Option<&GitAuth>,
 ) -> Result<(), Box<dyn Error>> {
@@ -32,13 +32,16 @@ pub fn clone_commit(
         .branch(branch)
         .clone(url, dir)?;
 
-    let oid = git2::Oid::from_str(commit_hash)?;
-    let commit = repo.find_commit(oid)?;
+    if let Some(commit_hash) = commit_hash {
+        let commit_hash = commit_hash.as_str();
+        let oid = git2::Oid::from_str(commit_hash)?;
+        let commit = repo.find_commit(oid)?;
 
-    repo.branch(commit_hash, &commit, false)?;
-    let obj = repo.revparse_single(&("refs/heads/".to_owned() + commit_hash))?;
-    repo.checkout_tree(&obj, None)?;
-    repo.set_head(&("refs/heads/".to_owned() + commit_hash))?;
+        repo.branch(commit_hash, &commit, false)?;
+        let obj = repo.revparse_single(&("refs/heads/".to_owned() + commit_hash))?;
+        repo.checkout_tree(&obj, None)?;
+        repo.set_head(&("refs/heads/".to_owned() + commit_hash))?;
+    }
 
     Ok(())
 }

@@ -115,7 +115,7 @@ impl Actor for BuildActor {
             let _ = std::thread::spawn(move || {
                 let _ = h.join();
                 let _ = h2.join();
-                adr.do_send(BuildMessage::Stop);
+                adr.do_send(StopBuildMessage);
             });
         } else {
             _ctx.stop();
@@ -154,19 +154,12 @@ impl Actor for BuildActor {
 
 #[derive(Message, Debug)]
 #[rtype(result = "Result<(), std::io::Error>")]
-pub enum BuildMessage {
-    Stop,
-}
+pub struct StopBuildMessage;
 
-impl Handler<BuildMessage> for BuildActor {
+impl Handler<StopBuildMessage> for BuildActor {
     type Result = Result<(), std::io::Error>;
 
-    fn handle(&mut self, _msg: BuildMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        match _msg {
-            BuildMessage::Stop => {
-                _ctx.stop();
-            }
-        }
-        Ok(())
+    fn handle(&mut self, _msg: StopBuildMessage, _ctx: &mut Context<Self>) -> Self::Result {
+        Ok(_ctx.stop())
     }
 }

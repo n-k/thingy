@@ -76,7 +76,7 @@ impl Handler<JobPollMsg> for JobActor {
                         let bpath = self.dir.join(k);
                         create_dir_all(&bpath)?;
                         let h =
-                            BranchActor::new(self.job.clone(), k.clone(), bpath, "".into()).start();
+                            BranchActor::new(self.job.clone(), k.clone(), bpath, None).start();
                         self.branch_actors.insert(k.clone(), h);
                         self.branch_actors
                             .get(k)
