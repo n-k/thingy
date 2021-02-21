@@ -1,10 +1,13 @@
-use std::{fmt::Display, path::PathBuf};
+#![forbid(unsafe_code)]
+use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 use actix::prelude::*;
 use branch_actor::{BuildNowMsg, GetBranchDetailsMsg, GetBuildActorMsg, GetBuildLogLinesMsg};
 use build_actor::StopBuildMessage;
 use job_actor::{GetBranchActorMsg, GetJobDetailsMsg, JobPollMsg};
-use root_actor::{GetJobActorMsg, GetJobActorResponse, GetJobsMsg, Thingy};
+use thingy::{
+    AddJobMsg, GetJobActorMsg, GetJobActorResponse, GetJobsMsg, RemoveJobMsg, Thingy,
+};
 
 use actix_files as fs;
 use actix_web::{
@@ -22,7 +25,7 @@ mod build_actor;
 mod git_utils;
 mod job_actor;
 mod models;
-mod root_actor;
+mod thingy;
 
 use models::*;
 
@@ -64,6 +67,8 @@ async fn main() -> std::io::Result<()> {
             .data(state.clone())
             .service(index)
             .service(get_jobs)
+            .service(create_job)
+            .service(delete_job)
             .service(poll)
             .service(get_job)
             .service(get_branch)
@@ -97,7 +102,9 @@ struct ApiError {
 
 impl Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!(r#"{{"message": "{}"}}"#, self.message).as_str())
+        let mut response: HashMap<String, String> = HashMap::new();
+        response.insert("message".into(), self.message.clone());
+        f.write_str(&serde_json::to_string(&response).unwrap())
     }
 }
 
@@ -150,6 +157,25 @@ async fn index() -> impl Responder {
 #[get("/jobs")]
 async fn get_jobs(data: web::Data<AppState>) -> Result<HttpResponse, ApiError> {
     Ok(HttpResponse::Ok().json(data.root.send(GetJobsMsg).await??.0))
+}
+
+#[post("/jobs")]
+async fn create_job(
+    req: web::Json<Job>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse, ApiError> {
+    data.root.send(AddJobMsg(req.into_inner())).await??;
+    Ok(HttpResponse::NoContent().body(""))
+}
+
+#[delete("/jobs/{jobId}")]
+async fn delete_job(
+    path: web::Path<(String,)>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse, ApiError> {
+    let id = path.into_inner().0;
+    data.root.send(RemoveJobMsg(id)).await??;
+    Ok(HttpResponse::NoContent().body(""))
 }
 
 #[post("/jobs/{jobId}/poll")]

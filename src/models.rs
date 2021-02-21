@@ -100,14 +100,7 @@ pub struct Job {
     pub name: String,
     /// Git fetch URL
     pub repo_url: String,
-    /// DEPRECATED: kept for backwards compatibility with v0.1.x
-    /// Setting 'branch="abcde"' is equivalent to saying 'branches=["abcde"]' and 'ignore_branches=None'
-    pub branch: Option<String>,
-    /// Which branches to build, omit to build all
-    pub branches: Option<Vec<String>>,
-    /// Which branches to ignore, omit to ignore none
-    pub ignore_branches: Option<Vec<String>>,
-    /// Path to script in repository which will be called to build
+    /// Path to script in repository which will be called
     pub build_script: String,
     /// Interval in seconds to wait before polling for changes
     pub poll_interval_seconds: Option<u64>,
@@ -117,21 +110,6 @@ pub struct Job {
 
 impl Job {
     pub fn validate(&mut self) -> Result<(), String> {
-        let mut bs = if let Some(bs) = &self.branches {
-            bs.clone()
-        } else {
-            vec![]
-        };
-        if bs.len() == 0 {
-            if let Some(b) = &self.branch {
-                bs.push(b.clone());
-            }
-        } else if let Some(_) = &self.branch {
-            return Err(
-                "Cannot set both branch and branches. Use braches, as branch is deprecated.".into(),
-            );
-        }
-
         if self.repo_url.trim().is_empty() {
             return Err("Repository url is empty.".into());
         }
@@ -153,5 +131,9 @@ pub enum GitAuth {
     PrivateKey {
         path: String,
         passphrase: Option<String>,
+    },
+    UserPass {
+        username: String,
+        password: String,
     },
 }

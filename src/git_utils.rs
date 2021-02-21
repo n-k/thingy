@@ -20,6 +20,9 @@ pub fn clone_commit(
                     std::path::Path::new(path),
                     passphrase.as_ref().map(|s| s.as_str()),
                 ),
+                GitAuth::UserPass { username, password } => {
+                    git2::Cred::userpass_plaintext(username, password)
+                }
             },
             None => git2::Cred::default(),
         },
@@ -63,6 +66,9 @@ pub fn get_branch_hashes(
                     std::path::Path::new(path),
                     passphrase.as_ref().map(|s| s.as_str()),
                 ),
+                GitAuth::UserPass { username, password } => {
+                    git2::Cred::userpass_plaintext(username, password)
+                }
             },
             None => git2::Cred::default(),
         },

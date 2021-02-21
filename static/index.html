@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+    <meta content="utf-8" http-equiv="encoding" />
     <title>thingy.rs</title>
     <script>
       window.exports = window;
       window["tiny-warning"] = function () {
-        console.log(arguments);
+        // only used by router to warn about base url, these should be safe to mute
+        // console.log(arguments);
       };
       window.require = function (name) {
         return window[name];
@@ -75,6 +78,9 @@
         height: calc(100vh - 150px);
         overflow: auto;
       }
+      .form div, .form input, .form textarea, .form select {
+        width: 100%;
+      }
     </style>
     <base href="/index.html" />
   </head>
@@ -92,18 +98,19 @@
 
         render(_props, {}) {
           return html`
-    <div class="root">
-      <nav class="nav">
-        <h3>Thingy build server and thing-doer</h3>
-      </nav>
-      <${Router} history=${createHashHistory()}>
-        <${Jobs} path="/" />
-        <${Job} path="/jobs/:id" />
-        <${Branch} path="/jobs/:job/branches/:branch" />
-        <${Log} path="/jobs/:job/branches/:branch/builds/:build_num/log" />
-        <${Error} type="404" default />
-      </${Router}>
-    </div>`;
+      <div class="root">
+        <nav class="nav">
+          <h3>Thingy build server and thing-doer</h3>
+        </nav>
+        <${Router} history=${createHashHistory()}>
+          <${Jobs} path="/" />
+          <${CreateJob} path="/jobs/new" />
+          <${Job} path="/jobs/:id" />
+          <${Branch} path="/jobs/:job/branches/:branch" />
+          <${Log} path="/jobs/:job/branches/:branch/builds/:build_num/log" />
+          <${Error} type="404" default />
+        </${Router}>
+      </div>`;
         }
       }
 
@@ -133,38 +140,212 @@
             res.json().then((data) => console.log(data));
           });
         };
+        deleteJob = (id) => {
+          fetch(`/jobs/${id}`, { method: "DELETE" }).then((res) => {
+            this.loadData();
+          });
+        };
         render() {
           const { loading, jobs } = this.state;
           if (loading) return "Loading...";
           return html`
-            <div class="title">
-              <div><h4>Home</h4></div>
-              <div>
-                <a href="javascript:void(0);" onClick=${this.loadData}
-                  >Reload</a
-                >
+              <div class="title">
+                <div><h4>Home</h4></div>
+                <div>
+                  <a href="javascript:void(0);" onClick=${this.loadData}
+                    >Reload</a
+                  >
+                </div>
+                <div>
+                  <${Link} href="/jobs/new">Add a new job</${Link}>
+                </div>
               </div>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Job</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${jobs.map(
-                  (job) => html`
+              <table>
+                <thead>
                   <tr>
-                    <td><${Link} href=${`/jobs/${job.name}`}>${job.name}</Link></td>
-                    <t><a href="javascript:void(0);" onClick=${() =>
-                      this.poll(job.name)}>Poll now</a></td>
+                    <th>Job</th>
+                    <th></th>
+                    <th></th>
                   </tr>
-                `
-                )}
+                </thead>
+                <tbody>
+                  ${jobs.map(
+                    (job) => html`
+                    <tr>
+                      <td><${Link} href=${`/jobs/${job.name}`}>${
+                      job.name
+                    }</Link></td>
+                      <td>
+                        <a href="javascript:void(0);" onClick=${() =>
+                          this.poll(job.name)}>Poll now</a>
+                      </td>
+                      <td>
+                        <a href="javascript:void(0);" onClick=${_ => this.deleteJob(job.name)}>Delete</a>
+                      </td>
+                    </tr>
+                  `
+                  )}
+                </tbody>
+              </table>
+            `;
+        }
+      }
+
+      class CreateJob extends Component {
+        constructor(props) {
+          super(props);
+          this.state = {
+            name: "",
+            repo_url: "",
+            build_script: "",
+            enable_poll: false,
+            poll_interval_seconds: 300,
+            auth_type: null, // can be null | 'ssh_key' || 'user_pass'
+            auth: {},
+          };
+        }
+        canSubmit = () => {
+          return true;
+        };
+        create = () => {};
+        renderAuthForm = () => {
+          const { auth_type, auth } = this.state;
+          switch (auth_type) {
+            case "ssh_key":
+              return html`
+                <div>SSH private key:</div>
+                <div>
+                  <textarea
+                    value=${auth.private_key}
+                    onChange=${(e) =>
+                      this.setState({
+                        auth: { ...auth, private_key: e.target.value },
+                      })}
+                  />
+                </div>
+                <div>Passphrase, if any. Leave empty if none.</div>
+                <div>
+                  <input
+                    value=${auth.passphrase}
+                    onChange=${(e) =>
+                      this.setState({
+                        auth: { ...auth, passphrase: e.target.value },
+                      })}
+                  />
+                </div>
+              `;
+            case "user_pass":
+              return html`
+                <div>User name:</div>
+                <div>
+                  <input
+                    value=${auth.username}
+                    onChange=${(e) =>
+                      this.setState({
+                        auth: { ...auth, username: e.target.value },
+                      })}
+                  />
+                </div>
+                <div>Password:</div>
+                <div>
+                  <input
+                    type="password"
+                    value=${auth.password}
+                    onChange=${(e) =>
+                      this.setState({
+                        auth: { ...auth, password: e.target.value },
+                      })}
+                  />
+                </div>
+              `;
+            default:
+              return null;
+          }
+        };
+        render(
+          {},
+          {
+            name,
+            repo_url,
+            build_script,
+            enable_poll,
+            poll_interval_seconds,
+            auth_type,
+          }
+        ) {
+          return html`<div class="title">
+              <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4>Add new job</h4></div>
+            </div>
+            <table class="form">
+              <tbody>
+                <tr>
+                  <td>Name</td>
+                  <td><input value=${name} onChange=${(e) =>
+          this.setState({ name: e.target.value })} /></td>
+                </tr>
+                <tr>
+                  <td>Repo URL</td>
+                  <td><input value=${repo_url} onChange=${(e) =>
+          this.setState({ repo_url: e.target.value })} /></td>
+                </tr>
+                <tr>
+                  <td>Build Script</td>
+                  <td><input value=${build_script} onChange=${(e) =>
+          this.setState({ build_script: e.target.value })} /></td>
+                </tr>
+                <tr>
+                  <td>Poll repo periodically?</td>
+                  <td><input type="checkbox" checked=${enable_poll} onChange=${(
+          e
+        ) => this.setState({ enable_poll: e.target.checked })} /></td>
+                </tr>
+                ${
+                  enable_poll
+                    ? html`
+                        <tr>
+                          <td>Poll after how many seconds?</td>
+                          <td>
+                            <input
+                              type="number"
+                              min="1"
+                              value=${poll_interval_seconds}
+                              onChange=${(e) =>
+                                this.setState({
+                                  poll_interval_seconds:
+                                    parseInt(e.target.value) || 60,
+                                })}
+                            />
+                          </td>
+                        </tr>
+                      `
+                    : null
+                }
+                <tr>
+                  <td>Credentials</td>
+                  <td>
+                    <select onChange=${(e) =>
+                      this.setState({ auth_type: e.target.value, auth: {} })}>
+                      <option value="">None</option>
+                      <option value="ssh_key">SSH private key</option>
+                      <option value="user_pass">Username and password</option>
+                    </select>
+                  </td>
+                </tr>
+                ${
+                  !!auth_type
+                    ? html`<tr>
+                        <td></td>
+                        <td>${this.renderAuthForm()}</td>
+                      </tr>`
+                    : null
+                }
+                <tr>
+                  <td colspan="2">
+                    <button disabled=${!this.canSubmit()}>Submit</button>
+                  </td>
+                </tr>
               </tbody>
-            </table>
-          `;
+            </table>`;
         }
       }
 
@@ -198,36 +379,36 @@
             ${loading
               ? "Loading..."
               : html`
-                  <div class="title">
-                    <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4>${
+                    <div class="title">
+                      <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4>${
                   job.name
                 }</h4></div>
-                    <div>
-                      <a href="javascript:void(0);" onClick=${this.poll}
-                        >Poll Now</a
-                      >
+                      <div>
+                        <a href="javascript:void(0);" onClick=${this.poll}
+                          >Poll Now</a
+                        >
+                      </div>
+                      <div>
+                        <a href="javascript:void(0);" onClick=${this.loadData}
+                          >Reload</a
+                        >
+                      </div>
                     </div>
-                    <div>
-                      <a href="javascript:void(0);" onClick=${this.loadData}
-                        >Reload</a
-                      >
-                    </div>
-                  </div>
-                  <table>
-                    <thead>
-                      <tr><th>Branch</th></tr>
-                    </thead>
-                    <tbody>
-                      ${(job.branches || []).map(
-                      (b) => html`
-                      <tr class="item">
-                        <td><${Link} href=${`/jobs/${job.name}/branches/${b}`}>${b}</${Link}></td>
-                      </tr>
-                      `
-                    )}
-                    </tbody>
-                  </table>
-                `}
+                    <table>
+                      <thead>
+                        <tr><th>Branch</th></tr>
+                      </thead>
+                      <tbody>
+                        ${(job.branches || []).map(
+                          (b) => html`
+                        <tr class="item">
+                          <td><${Link} href=${`/jobs/${job.name}/branches/${b}`}>${b}</${Link}></td>
+                        </tr>
+                        `
+                        )}
+                      </tbody>
+                    </table>
+                  `}
           </div>`;
         }
       }
@@ -278,46 +459,46 @@
         render({ job, branch }, { loading, branchDetails }) {
           if (loading) return "Loading...";
           return html`<div class="branch">
-      <div class="title">
-        <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}> / <h4>${branch}</h4></div>
-        <div><a href="javascript:void(0);" onClick=${
-          this.buildNow
-        }>Build Now</a></div>
-        <div><a href="javascript:void(0);" onClick=${
-          this.loadData
-        }>Reload</a></div>
-      </div>
-      <div>
-        <table>
-          <thead>
-            <tr><th>Build #</th><th>Commit</th><th>Status</th><th></th></tr>
-          </thead>  
-          <tbody>
-            ${(branchDetails.builds || []).reverse().map(
-              (b) => html`
-                <tr>
-                  <td>${b.build_num}</td>
-                  <td>${b.commit_hash}</td>
-                  <td>${b.status}</td>
-                  <td>
-                    ${
-                      b.status === "building"
-                        ? html`<a
-                            href="javascript:void(0);"
-                            onClick=${() => this.abort(b.build_num)}
-                            >Abort</a
-                          >`
-                        : ""
-                    }
-                    <${Link} href=${`/jobs/${job}/branches/${branch}/builds/${b.build_num}/log`}>Logs</${Link}>
-                  </td>
-                </tr>
-              `
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
+        <div class="title">
+          <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}> / <h4>${branch}</h4></div>
+          <div><a href="javascript:void(0);" onClick=${
+            this.buildNow
+          }>Build Now</a></div>
+          <div><a href="javascript:void(0);" onClick=${
+            this.loadData
+          }>Reload</a></div>
+        </div>
+        <div>
+          <table>
+            <thead>
+              <tr><th>Build #</th><th>Commit</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              ${(branchDetails.builds || []).reverse().map(
+                (b) => html`
+                  <tr>
+                    <td>${b.build_num}</td>
+                    <td>${b.commit_hash}</td>
+                    <td>${b.status}</td>
+                    <td>
+                      ${
+                        b.status === "building"
+                          ? html`<a
+                              href="javascript:void(0);"
+                              onClick=${() => this.abort(b.build_num)}
+                              >Abort</a
+                            >`
+                          : ""
+                      }
+                      <${Link} href=${`/jobs/${job}/branches/${branch}/builds/${b.build_num}/log`}>Logs</${Link}>
+                    </td>
+                  </tr>
+                `
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
         }
       }
 
@@ -376,23 +557,23 @@
         };
         render({ job, branch, build_num }, { lines, status }) {
           return html`<div class="title">
-          <div>
-            <h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4><${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}></h4> / <h4><${Link} href=${`/jobs/${job}/branches/${branch}`}><h4>${branch}</h4></${Link}></h4> / <h4>${build_num}</h4> / logs
+            <div>
+              <h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4><${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}></h4> / <h4><${Link} href=${`/jobs/${job}/branches/${branch}`}><h4>${branch}</h4></${Link}></h4> / <h4>${build_num}</h4> / logs
+            </div>
+            ${
+              status === "building"
+                ? html`<div>
+                    <a href="javascript:void(0);" onClick=${this.abort}
+                      >Abort Build</a
+                    >
+                  </div>`
+                : ""
+            }
+            <div><a href="javascript:void(0);" onClick=${
+              this.loadData
+            }>Reload</a></div>
           </div>
-          ${
-            status === "building"
-              ? html`<div>
-                  <a href="javascript:void(0);" onClick=${this.abort}
-                    >Abort Build</a
-                  >
-                </div>`
-              : ""
-          }
-          <div><a href="javascript:void(0);" onClick=${
-            this.loadData
-          }>Reload</a></div>
-        </div>
-        <div class="logs">${lines.map((l) => html`<pre>${l}</pre>`)}</div>`;
+          <div class="logs">${lines.map((l) => html`<pre>${l}</pre>`)}</div>`;
         }
         componentDidUpdate() {
           try {
