@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+    <meta content="utf-8" http-equiv="encoding" />
+    <title>thingy.rs</title>
+    <script>
+      window.exports = window;
+      window["tiny-warning"] = function () {
+        // only used by router to warn about base url, these should be safe to mute
+        // console.log(arguments);
+      };
+      window.require = function (name) {
+        return window[name];
+      };
+      window.warning = function () {
+        console.log(arguments);
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/history@4.10.1/cjs/history.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/preact/10.5.12/preact.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htm/3.0.4/htm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/preact-router/3.2.1/preact-router.js"></script>
+    <script>
+      html = htm.bind(preact.h);
+    </script>
+    <style>
+      html {
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      * {
+        padding: unset;
+        margin: unset;
+      }
+      h1,
+      h2,
+      h3,
+      h4,
+      h5 {
+        display: unset;
+      }
+      table {
+        width: 100%;
+        text-align: justify;
+      }
+      tr:nth-child(odd) {
+        background-color: antiquewhite;
+      }
+      tr:hover {
+        background-color: azure;
+      }
+      table a {
+        margin-left: 0.5em;
+        margin-right: 0.5em;
+      }
+      .root {
+        max-width: 1500px;
+        margin-left: 15%;
+        margin-right: 15%;
+      }
+      .nav {
+        margin-bottom: 2em;
+      }
+      .title {
+        padding-top: 1em;
+        padding-bottom: 1em;
+        margin-bottom: 1em;
+        display: flex;
+        justify-content: space-between;
+        background-color: aliceblue;
+      }
+      .logs {
+        height: calc(100vh - 150px);
+        overflow: auto;
+      }
+      .form div,
+      .form input,
+      .form textarea,
+      .form select {
+        width: 100%;
+      }
+    </style>
+    <base href="/index.html" />
+  </head>
+  <body>
+    <script type="module">
+      const { Component, render, createRef } = preact;
+      const { Router, route, Link } = preactRouter;
+      const { createHashHistory, createBrowserHistory } = window;
+
+      class App extends Component {
+        constructor(props) {
+          super(props);
+          this.setState({});
+        }
+
+        render(_props, {}) {
+          return html`
+      <div class="root">
+        <nav class="nav">
+          <h3>Thingy build server and thing-doer</h3>
+        </nav>
+        <${Router} history=${createHashHistory()}>
+          <${Jobs} path="/" />
+          <${CreateJob} path="/jobs/new" />
+          <${Job} path="/jobs/:id" />
+          <${Branch} path="/jobs/:job/branches/:branch" />
+          <${Log} path="/jobs/:job/branches/:branch/builds/:build_num/log" />
+          <${Error} type="404" default />
+        </${Router}>
+      </div>`;
+        }
+      }
+
+      class Jobs extends Component {
+        constructor(props) {
+          super(props);
+          this.setState({ jobs: [], loading: true });
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        loadData = () => {
+          this.setState({ loading: true, jobs: [] }, () => {
+            fetch("/jobs")
+              .then((res) => {
+                res.json().then((jobs) => {
+                  this.setState({ jobs });
+                });
+              })
+              .finally(() => {
+                this.setState({ loading: false });
+              });
+          });
+        };
+        poll = (id) => {
+          fetch(`/jobs/${id}/poll`, { method: "POST" }).then((res) => {
+            res.json().then((data) => console.log(data));
+          });
+        };
+        deleteJob = (id) => {
+          fetch(`/jobs/${id}`, { method: "DELETE" }).then((res) => {
+            this.loadData();
+          });
+        };
+        render() {
+          const { loading, jobs } = this.state;
+          if (loading) return "Loading...";
+          return html`
+              <div class="title">
+                <div><h4>Home</h4></div>
+                <div>
+                  <a href="javascript:void(0);" onClick=${this.loadData}
+                    >Reload</a
+                  >
+                </div>
+                <div>
+                  <${Link} href="/jobs/new">Add a new job</${Link}>
+                </div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th></th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${jobs.map(
+                    (job) => html`
+                    <tr>
+                      <td><${Link} href=${`/jobs/${job.name}`}>${
+                      job.name
+                    }</Link></td>
+                      <td>
+                        <a href="javascript:void(0);" onClick=${() =>
+                          this.poll(job.name)}>Poll now</a>
+                      </td>
+                      <td>
+                        <a href="javascript:void(0);" onClick=${(_) =>
+                          this.deleteJob(job.name)}>Delete</a>
+                      </td>
+                    </tr>
+                  `
+                  )}
+                </tbody>
+              </table>
+            `;
+        }
+      }
+
+      class CreateJob extends Component {
+        constructor(props) {
+          super(props);
+          this.state = {
+            name: "",
+            repo_url: "",
+            build_script: "",
+            enable_poll: false,
+            poll_interval_seconds: 300,
+            auth_type: null, // can be null | 'PrivateKey' || 'UserPass'
+            auth: {},
+          };
+        }
+        canSubmit = () => {
+          const {
+            name,
+            repo_url,
+            build_script,
+            enable_poll,
+            poll_interval_seconds,
+            auth_type,
+            auth,
+          } = this.state;
+          if (!name) return false;
+          if (!repo_url) return false;
+          if (!build_script) return false;
+          if (enable_poll) {
+            if (!(poll_interval_seconds > 0)) {
+              return false;
+            }
+          }
+          switch (auth_type) {
+            case "PrivateKey":
+              if (!auth.private_key) return false;
+              break;
+            case "UserPass":
+              if (!auth.username) return false;
+              if (!auth.password) return false;
+              break;
+            default:
+              break;
+          }
+          return true;
+        };
+        create = () => {
+          const {
+            name,
+            repo_url,
+            build_script,
+            enable_poll,
+            poll_interval_seconds,
+            auth_type,
+            auth,
+          } = this.state;
+          const req = {
+            name,
+            repo_url,
+            build_script,
+          };
+          if (enable_poll) {
+            req.poll_interval_seconds = poll_interval_seconds;
+          }
+          if (auth_type) {
+            const auth_req = {};
+            auth_req[auth_type] = auth;
+            req.auth = auth_req;
+          }
+          fetch("/jobs", {
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+            },
+            method: "POST",
+            body: JSON.stringify(req),
+          }).then((res) => {
+            route('/');
+          });z
+        };
+        renderAuthForm = () => {
+          const { auth_type, auth } = this.state;
+          switch (auth_type) {
+            case "PrivateKey":
+              return html`
+                <div>SSH private key:</div>
+                <div>
+                  <textarea
+                    value=${auth.private_key}
+                    onInput=${(e) =>
+                      this.setState({
+                        auth: { ...auth, private_key: e.target.value },
+                      })}
+                  />
+                </div>
+                <div>Passphrase, if any. Leave empty if none.</div>
+                <div>
+                  <input
+                    value=${auth.passphrase}
+                    onInput=${(e) =>
+                      this.setState({
+                        auth: { ...auth, passphrase: e.target.value },
+                      })}
+                  />
+                </div>
+              `;
+            case "UserPass":
+              return html`
+                <div>User name:</div>
+                <div>
+                  <input
+                    value=${auth.username}
+                    onInput=${(e) =>
+                      this.setState({
+                        auth: { ...auth, username: e.target.value },
+                      })}
+                  />
+                </div>
+                <div>Password:</div>
+                <div>
+                  <input
+                    type="password"
+                    value=${auth.password}
+                    onInput=${(e) =>
+                      this.setState({
+                        auth: { ...auth, password: e.target.value },
+                      })}
+                  />
+                </div>
+              `;
+            default:
+              return null;
+          }
+        };
+        render(
+          {},
+          {
+            name,
+            repo_url,
+            build_script,
+            enable_poll,
+            poll_interval_seconds,
+            auth_type,
+          }
+        ) {
+          return html`<div class="title">
+              <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4>Add new job</h4></div>
+            </div>
+            <table class="form">
+              <tbody>
+                <tr>
+                  <td>Name</td>
+                  <td><input value=${name} onInput=${(e) =>
+            this.setState({ name: e.target.value })} /></td>
+                </tr>
+                <tr>
+                  <td>Repo URL</td>
+                  <td><input value=${repo_url} onInput=${(e) =>
+            this.setState({ repo_url: e.target.value })} /></td>
+                </tr>
+                <tr>
+                  <td>Build Script</td>
+                  <td><input value=${build_script} onInput=${(e) =>
+            this.setState({ build_script: e.target.value })} /></td>
+                </tr>
+                <tr>
+                  <td>Poll repo periodically?</td>
+                  <td><input type="checkbox" checked=${enable_poll} onInput=${(
+            e
+          ) => this.setState({ enable_poll: e.target.checked })} /></td>
+                </tr>
+                ${
+                  enable_poll
+                    ? html`
+                        <tr>
+                          <td>Poll after how many seconds?</td>
+                          <td>
+                            <input
+                              type="number"
+                              min="1"
+                              value=${poll_interval_seconds}
+                              onInput=${(e) =>
+                                this.setState({
+                                  poll_interval_seconds:
+                                    parseInt(e.target.value) || 60,
+                                })}
+                            />
+                          </td>
+                        </tr>
+                      `
+                    : null
+                }
+                <tr>
+                  <td>Credentials</td>
+                  <td>
+                    <select onChange=${(e) =>
+                      this.setState({ auth_type: e.target.value, auth: {} })}>
+                      <option value="">None</option>
+                      <option value="PrivateKey">SSH private key</option>
+                      <option value="UserPass">Username and password</option>
+                    </select>
+                  </td>
+                </tr>
+                ${
+                  !!auth_type
+                    ? html`<tr>
+                        <td></td>
+                        <td>${this.renderAuthForm()}</td>
+                      </tr>`
+                    : null
+                }
+                <tr>
+                  <td colspan="2">
+                    <button disabled=${!this.canSubmit()} onClick=${
+            this.create
+          }>Submit</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>`;
+        }
+      }
+
+      class Job extends Component {
+        constructor(props) {
+          super(props);
+          this.setState({ job: undefined, loading: true });
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        loadData = () => {
+          const { id } = this.props;
+          this.setState({ loading: true }, () => {
+            fetch(`/jobs/${id}`).then((res) => {
+              res.json().then((job) => {
+                this.setState({ job: job || {}, loading: false });
+              });
+            });
+          });
+        };
+        poll = () => {
+          const { id } = this.props;
+          fetch(`/jobs/${id}/poll`, { method: "POST" }).then((res) => {
+            this.loadData();
+          });
+        };
+        render() {
+          const { loading, job } = this.state;
+          return html`<div class="job">
+            ${loading
+              ? "Loading..."
+              : html`
+                    <div class="title">
+                      <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4>${
+                  job.name
+                }</h4></div>
+                      <div>
+                        <a href="javascript:void(0);" onClick=${this.poll}
+                          >Poll Now</a
+                        >
+                      </div>
+                      <div>
+                        <a href="javascript:void(0);" onClick=${this.loadData}
+                          >Reload</a
+                        >
+                      </div>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr><th>Branch</th></tr>
+                      </thead>
+                      <tbody>
+                        ${(job.branches || []).map(
+                          (b) => html`
+                        <tr class="item">
+                          <td><${Link} href=${`/jobs/${job.name}/branches/${b}`}>${b}</${Link}></td>
+                        </tr>
+                        `
+                        )}
+                      </tbody>
+                    </table>
+                  `}
+          </div>`;
+        }
+      }
+
+      class Branch extends Component {
+        constructor(props) {
+          super(props);
+          this.state = { loading: true, branchDetails: undefined };
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        loadData = () => {
+          const { job, branch } = this.props;
+          this.setState({ loading: true }, () => {
+            fetch(`/jobs/${job}/branches/${branch}`).then((res) => {
+              res.json().then((branchDetails) => {
+                this.setState({ branchDetails, loading: false }, () => {
+                  // keep reloading if any build is running
+                  if (
+                    (branchDetails.builds || []).filter(
+                      (b) => b.status === "building"
+                    )?.length
+                  ) {
+                    setTimeout(this.loadData, 2000);
+                  }
+                });
+              });
+            });
+          });
+        };
+        buildNow = () => {
+          const { job, branch } = this.props;
+          fetch(`/jobs/${job}/branches/${branch}/builds`, {
+            method: "POST",
+          }).then((res) => {
+            this.loadData();
+          });
+        };
+        abort = (build_num) => {
+          const { job, branch } = this.props;
+          fetch(`/jobs/${job}/branches/${branch}/builds/${build_num}`, {
+            method: "DELETE",
+          }).then((res) => {
+            this.loadData();
+          });
+        };
+        render({ job, branch }, { loading, branchDetails }) {
+          if (loading) return "Loading...";
+          return html`<div class="branch">
+        <div class="title">
+          <div><h4><${Link} href=${`/`}>Home</${Link}></h4> / <${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}> / <h4>${branch}</h4></div>
+          <div><a href="javascript:void(0);" onClick=${
+            this.buildNow
+          }>Build Now</a></div>
+          <div><a href="javascript:void(0);" onClick=${
+            this.loadData
+          }>Reload</a></div>
+        </div>
+        <div>
+          <table>
+            <thead>
+              <tr><th>Build #</th><th>Commit</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              ${(branchDetails.builds || []).reverse().map(
+                (b) => html`
+                  <tr>
+                    <td>${b.build_num}</td>
+                    <td>${b.commit_hash}</td>
+                    <td>${b.status}</td>
+                    <td>
+                      ${
+                        b.status === "building"
+                          ? html`<a
+                              href="javascript:void(0);"
+                              onClick=${() => this.abort(b.build_num)}
+                              >Abort</a
+                            >`
+                          : ""
+                      }
+                      <${Link} href=${`/jobs/${job}/branches/${branch}/builds/${b.build_num}/log`}>Logs</${Link}>
+                    </td>
+                  </tr>
+                `
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+        }
+      }
+
+      class Log extends Component {
+        constructor(props) {
+          super(props);
+          this.state = {
+            line_idx: 0,
+            page_size: 10,
+            loading: false,
+            lines: [],
+            status: undefined,
+          };
+        }
+        componentDidMount() {
+          this.loadData();
+        }
+        reload = () => {
+          this.setState(
+            { line_idx: 0, page_size: 10, loading: false, lines: [] },
+            () => {
+              this.loadData();
+            }
+          );
+        };
+        loadData = () => {
+          const { job, branch, build_num } = this.props;
+          const { line_idx, page_size, lines: existingLines } = this.state;
+          this.setState({ loading: true }, () => {
+            fetch(
+              `/jobs/${job}/branches/${branch}/builds/${build_num}/log?start=${line_idx}&num_lines=${page_size}`
+            ).then((res) => {
+              res.json().then(({ has_more, lines, status }) => {
+                existingLines.push(...lines);
+                this.setState({
+                  line_idx: existingLines.length,
+                  lines: [...existingLines],
+                  status,
+                });
+                if (has_more || status == "building") {
+                  setTimeout(() => {
+                    this.loadData();
+                  }, 500);
+                }
+              });
+            });
+          });
+        };
+        abort = () => {
+          const { job, branch, build_num } = this.props;
+          fetch(`/jobs/${job}/branches/${branch}/builds/${build_num}`, {
+            method: "DELETE",
+          }).then((res) => {
+            this.loadData();
+          });
+        };
+        render({ job, branch, build_num }, { lines, status }) {
+          return html`<div class="title">
+            <div>
+              <h4><${Link} href=${`/`}>Home</${Link}></h4> / <h4><${Link} href=${`/jobs/${job}`}><h4>${job}</h4></${Link}></h4> / <h4><${Link} href=${`/jobs/${job}/branches/${branch}`}><h4>${branch}</h4></${Link}></h4> / <h4>${build_num}</h4> / logs
+            </div>
+            ${
+              status === "building"
+                ? html`<div>
+                    <a href="javascript:void(0);" onClick=${this.abort}
+                      >Abort Build</a
+                    >
+                  </div>`
+                : ""
+            }
+            <div><a href="javascript:void(0);" onClick=${
+              this.loadData
+            }>Reload</a></div>
+          </div>
+          <div class="logs">${lines.map((l) => html`<pre>${l}</pre>`)}</div>`;
+        }
+        componentDidUpdate() {
+          try {
+            const div = document.querySelector(".logs");
+            div.scrollTop = div.scrollHeight - div.clientHeight;
+          } catch (e) {}
+        }
+      }
+
+      class Error extends Component {
+        render() {
+          const { type, url } = this.props;
+          return html`<section class="error">
+            <h2>Error ${type}</h2>
+            <p>It looks like we hit a snag.</p>
+            <pre>${url}</pre>
+
+            <div>Go to <a href="/">home</a></div>
+          </section>`;
+        }
+      }
+
+      render(html`<${App} />`, document.body);
+    </script>
+  </body>
+</html>
