@@ -16,6 +16,12 @@ impl Workspace {
 
         let ws_yaml_path = path.clone().join("thingy.yaml");
 
+        if !ws_yaml_path.exists() {
+            std::fs::write(&ws_yaml_path, serde_yaml::to_string(&Workspace {
+                jobs: vec![],
+            })?)?;
+        }
+
         let md = std::fs::metadata(&ws_yaml_path);
         if let Err(err) = &md {
             return Err(format!(
