@@ -7,7 +7,7 @@ homepage = "https://github.com/n-k/thingy"
 repository = "https://github.com/n-k/thingy"
 keywords = ["build", "git", "automation"]
 readme = "README.md"
-include = ["src/**/*.rs", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "static", "README.md", "LICENSE"]
 license = "MIT"
 edition = "2018"
 
